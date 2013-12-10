@@ -1,5 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
+module Benchmarks where
+
 import Criterion.Main
 import Crypto.Cipher.Salsa20
 

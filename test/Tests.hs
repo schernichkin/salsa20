@@ -1,5 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
+module Tests where
+
 import           Control.Monad
 import           Crypto.Cipher.Salsa20 as S
 import           Test.Framework                       as F

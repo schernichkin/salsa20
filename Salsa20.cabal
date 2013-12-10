@@ -17,11 +17,11 @@ Library
     Build-Depends: base
     GHC-Options: -O2 -Wall
 
-test-suite UnitTests
-    hs-source-dirs: tests
-    main-is: UnitTests.hs
+test-suite Tests
+    hs-source-dirs: test
+    main-is: Tests.hs
     type: exitcode-stdio-1.0
-    ghc-options: -Wall
+    ghc-options: -Wall -main-is Tests.main
     build-depends: Salsa20
                  , base
                  , QuickCheck
@@ -31,10 +31,10 @@ test-suite UnitTests
                  , test-framework
 
 Benchmark Benchmarks
-    hs-source-dirs: tests
+    hs-source-dirs: bench
     main-is: Benchmarks.hs
     type: exitcode-stdio-1.0
-    ghc-options: -Wall -O2
+    ghc-options: -Wall -O2 -main-is Benchmark.main
     build-depends: Salsa20
                  , base
                  , criterion
