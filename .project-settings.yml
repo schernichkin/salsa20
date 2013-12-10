@@ -5,7 +5,11 @@ extensions: {}
 environment: ghc-7.4.2-stable-13.09
 cabal-file: project.cabal
 modules:
-  Main(src/Main.hs):
-    filename: src/Main.hs
+  Crypto.Cipher.Salsa20:
+    filename: src/Crypto/Cipher/Salsa20.hs
+  UnitTests:
+    filename: tests/UnitTests.hs
+  Benchmarks:
+    filename: tests/BenchMarksBenchmarks.hs
 version: 1
 ghc-args: []
