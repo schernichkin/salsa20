@@ -1,0 +1,31 @@
+Name: Salsa20
+Version: 0.0.0.0
+License: BSD3
+Maintainer: Stanislav Chernichkin <schernichkin@gmail.com>
+Author: Stanislav Chernichkin
+Category: Cryptography
+Build-Type: Simple
+homepage: https://github.com/schernichkin/salsa20
+synopsis: Salsa20 chiper
+Description: Salsa20 chiper implementation in Haskell
+Stability: Experemental
+Cabal-version: >= 1.8
+
+Library
+    Hs-Source-Dirs: src
+    Exposed-Modules: Crypto.Cipher.Salsa20
+    Build-Depends: base
+    GHC-Options: -O2 -Wall
+
+test-suite test
+    hs-source-dirs: UnitTests
+    main-is: UnitTests.hs
+    type: exitcode-stdio-1.0
+    ghc-options: -Wall
+    build-depends: Salsa20
+                 , base
+                 , QuickCheck
+                 , HUnit
+                 , test-framework-quickcheck2
+                 , test-framework-hunit
+                 , test-framework
