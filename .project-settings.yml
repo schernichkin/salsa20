@@ -10,6 +10,6 @@ modules:
   UnitTests:
     filename: tests/UnitTests.hs
   Benchmarks:
-    filename: tests/BenchMarksBenchmarks.hs
+    filename: tests/Benchmarks.hs
 version: 1
 ghc-args: []
