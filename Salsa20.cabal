@@ -14,15 +14,16 @@ Cabal-version: >= 1.8
 Library
     Hs-Source-Dirs: src
     Exposed-Modules: Crypto.Cipher.Salsa20
+                   , Crypto.Cipher.Salsa20.LE
     Build-Depends: base
                  , bytestring
-    GHC-Options: -O2 -Wall
+    GHC-Options: -Wall -O2
 
 test-suite Tests
     hs-source-dirs: test
     main-is: Tests.hs
     type: exitcode-stdio-1.0
-    ghc-options: -Wall -main-is Tests.main
+    ghc-options: -Wall -O2 -main-is Tests.main
     build-depends: Salsa20
                  , base
                  , QuickCheck
