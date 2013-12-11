@@ -121,7 +121,14 @@ main = defaultMain
     , salsa20TestGroup "salsa20" salsa20
     , salsa20TestGroup "salsa20'" salsa20'
     , testGroup "expand" $ map (uncurry testCase)
-        [ ("expand2", expand2 (fst $ fromJust $ readBinary $ pack [1 .. 16])
+        [ ("expand16", expand16 (fst $ fromJust $ readBinary $ pack [1 .. 16])
+                              (fst $ fromJust $ readBinary $ pack [101 .. 116])
+                          @=? (fst $ fromJust $ readBinary $ pack
+                                   [ 39,173, 46,248, 30,200, 82, 17, 48, 67,254,239, 37, 18, 13,247
+                                   , 241,200, 61,144, 10, 55, 50,185, 6, 47,246,253,143, 86,187,225
+                                   , 134, 85,110,246,161,163, 43,235,231, 94,171, 51,145,214,112, 29
+                                   , 14,232, 5, 16,151,140,183,141,171, 9,122,181,104,182,177,193 ]))
+        , ("expand32", expand32 (fst $ fromJust $ readBinary $ pack [1 .. 16])
                               (fst $ fromJust $ readBinary $ pack [201 .. 216])
                               (fst $ fromJust $ readBinary $ pack [101 .. 116])
                           @=? (fst $ fromJust $ readBinary $ pack

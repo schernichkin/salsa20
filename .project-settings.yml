@@ -14,6 +14,8 @@ modules:
     filename: src/Crypto/Cipher/Salsa20.hs
   Benchmarks:
     filename: bench/Benchmarks.hs
+  Main(tmp/Main.hs):
+    filename: tmp/Main.hs
 version: 1
 extra-packages: ''
 ghc-args: []
