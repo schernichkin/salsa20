@@ -31,7 +31,7 @@ instance Storable Quarter where
     poke ptr (Quarter x0 x1 x2 x3) = do poke (castPtr ptr) x0
                                         poke (ptr `plusPtr` sizeOfWord32) x1
                                         poke (ptr `plusPtr` (sizeOfWord32 * 2)) x2
-                                        poke (ptr `plusPtr` (sizeOfWord32 * 2)) x3
+                                        poke (ptr `plusPtr` (sizeOfWord32 * 3)) x3
 
 {-# INLINE sizeOfWord32 #-}
 sizeOfWord32 :: Int
@@ -81,18 +81,26 @@ instance Storable State where
     poke ptr (State x0 x1 x2 x3) = do poke (castPtr ptr) x0
                                       poke (ptr `plusPtr` sizeOfQuarter) x1
                                       poke (ptr `plusPtr` (sizeOfQuarter * 2)) x2
-                                      poke (ptr `plusPtr` (sizeOfQuarter * 2)) x3
+                                      poke (ptr `plusPtr` (sizeOfQuarter * 3)) x3
 
 {-# INLINE sizeOfQuarter #-}
 sizeOfQuarter :: Int
 sizeOfQuarter = sizeOf (undefined :: Quarter)
 
-readState :: ByteString -> Either String (State, ByteString)
+{-# INLINE sizeOfState #-}
+sizeOfState :: Int
+sizeOfState = sizeOf (undefined :: State)
+
+{-# INLINE readState #-}
+readState :: ByteString -> Maybe (State, ByteString)
 readState bs = case toForeignPtr bs of
-                   (ptr, offset, length) | length < 64 -> Left "ByteString must be at least 64 bytes length to read state from."
-                                         | otherwise   -> Right ( undefined
-                                                                , fromForeignPtr ptr (offset + 64) (length - 64)
-                                                                )
+                   (x, s, l) | l < sizeOfState -> Nothing
+                             | otherwise       -> Just ( inlinePerformIO $ withForeignPtr x $ peek . castPtr
+                                                       , fromForeignPtr x (s + sizeOfState) (l - sizeOfState))
+
+{-# INLINE writeState #-}
+writeState :: State -> ByteString
+writeState = unsafeCreate sizeOfState . flip (poke . castPtr)
 
 {-# INLINE rowround #-}
 rowround :: State -> State

@@ -9,10 +9,13 @@ import           Test.Framework.Providers.HUnit
 import           Test.Framework.Providers.QuickCheck2
 import           Test.HUnit                           as U
 import           Test.QuickCheck.Arbitrary
+import Data.Maybe
 
 instance Arbitrary Quarter where
     arbitrary = liftM4 Quarter arbitrary arbitrary arbitrary arbitrary
 
+instance Arbitrary S.State where
+    arbitrary = liftM4 S.State arbitrary arbitrary arbitrary arbitrary
 
 doubleroundTestGroup n f = testGroup n $ map (uncurry testCase)
         [ (n ++ " 1", f (S.State (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
@@ -96,4 +99,7 @@ main = defaultMain
     , doubleroundTestGroup "doubleround'" doubleround'
     , salsa20TestGroup "salsa20" salsa20
     , salsa20TestGroup "salsa20'" salsa20'
+    , testGroup "read/write State" $ map (uncurry testProperty)
+        [ ("readState . writeState == id", \(s :: S.State) -> s == (fst $ fromJust $ readState $ writeState s))
+        ]
     ]
