@@ -4,7 +4,10 @@ module-template: ! 'module MODULE_NAME where
 extensions: {}
 environment: ghc-7.4.2-stable-13.09
 cabal-file: project.cabal
+hidden-packages: ''
 modules:
+  Crypto.Cipher.Salsa20.LE:
+    filename: src/Crypto/Cipher/Salsa20/LE.hs
   Tests:
     filename: test/Tests.hs
   Crypto.Cipher.Salsa20:
@@ -12,4 +15,5 @@ modules:
   Benchmarks:
     filename: bench/Benchmarks.hs
 version: 1
+extra-packages: ''
 ghc-args: []
