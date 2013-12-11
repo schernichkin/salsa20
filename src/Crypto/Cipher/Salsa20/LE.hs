@@ -37,6 +37,10 @@ instance Storable Quarter where
 sizeOfWord32 :: Int
 sizeOfWord32 = sizeOf (0 :: Word32)
 
+{-# INLINE quarterPlus #-}
+quarterPlus :: Quarter -> Quarter -> Quarter
+quarterPlus (Quarter x0 x1 x2 x3) (Quarter y0 y1 y2 y3) = Quarter (x0 + y0) (x1 + y1) (x2 + y2) (x3 + y3)
+
 {-# INLINE quarterround #-}
 quarterround :: Quarter -> Quarter
 quarterround (Quarter x0 x1 x2 x3) = Quarter y0 y1 y2 y3
@@ -101,6 +105,10 @@ readState bs = case toForeignPtr bs of
 {-# INLINE writeState #-}
 writeState :: State -> ByteString
 writeState = unsafeCreate sizeOfState . flip (poke . castPtr)
+
+{-# INLINE statePlus #-}
+statePlus :: State -> State -> State
+statePlus (State x0 x1 x2 x3) (State y0 y1 y2 y3) = State (x0 `quarterPlus` y0) (x1 `quarterPlus` y1) (x2 `quarterPlus` y2) (x3 `quarterPlus` y3)
 
 {-# INLINE rowround #-}
 rowround :: State -> State
@@ -192,15 +200,17 @@ rounds20 :: RoundCount
 rounds20 = RoundCount 10
 
 salsa :: RoundCount -> State -> State
-salsa (RoundCount 0) = id
-salsa (RoundCount c) = salsa (RoundCount $ c - 1) . doubleround
+salsa count initState = go count initState
+    where go (RoundCount 0) = statePlus initState
+          go (RoundCount c) = go (RoundCount $ c - 1) . doubleround
 
 salsa20 :: State -> State
 salsa20 = salsa rounds20
 
 salsa' :: RoundCount -> State -> State
-salsa' (RoundCount 0) = id
-salsa' (RoundCount c) = salsa' (RoundCount $ c - 1) . doubleround'
+salsa' count initState = go count initState
+    where go (RoundCount 0) = statePlus initState
+          go (RoundCount c) = go (RoundCount $ c - 1) . doubleround'
 
 salsa20' :: State -> State
 salsa20' = salsa' rounds20
