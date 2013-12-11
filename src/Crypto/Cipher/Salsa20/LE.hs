@@ -1,3 +1,4 @@
+{-# LANGUAGE ScopedTypeVariables #-}
 module Crypto.Cipher.Salsa20.LE where
 
 import           Control.Monad
@@ -95,16 +96,22 @@ sizeOfQuarter = sizeOf (undefined :: Quarter)
 sizeOfState :: Int
 sizeOfState = sizeOf (undefined :: State)
 
-{-# INLINE readState #-}
-readState :: ByteString -> Maybe (State, ByteString)
-readState bs = case toForeignPtr bs of
-                   (x, s, l) | l < sizeOfState -> Nothing
-                             | otherwise       -> Just ( inlinePerformIO $ withForeignPtr x $ peek . castPtr
-                                                       , fromForeignPtr x (s + sizeOfState) (l - sizeOfState))
+{-# INLINE readBinary #-}
+{-# SPECIALIZE readBinary :: ByteString -> Maybe (Quarter, ByteString) #-}
+{-# SPECIALIZE readBinary :: ByteString -> Maybe (State, ByteString) #-}
+readBinary :: forall a . (Storable a) => ByteString -> Maybe (a, ByteString)
+readBinary bs = case toForeignPtr bs of
+                   (p, s, l) | l < size  -> Nothing
+                             | otherwise -> Just ( inlinePerformIO $ withForeignPtr p $ peek . castPtr
+                                                 , fromForeignPtr p (s + size) (l - size))
+    where size = sizeOf (undefined :: a)
 
-{-# INLINE writeState #-}
-writeState :: State -> ByteString
-writeState = unsafeCreate sizeOfState . flip (poke . castPtr)
+{-# INLINE writeBinary #-}
+{-# SPECIALIZE writeBinary :: Quarter -> ByteString #-}
+{-# SPECIALIZE writeBinary :: State -> ByteString #-}
+writeBinary :: forall a . (Storable a) => a -> ByteString
+writeBinary s = unsafeCreate size $ \p -> poke (castPtr p) s
+    where size = sizeOf (undefined :: a)
 
 {-# INLINE statePlus #-}
 statePlus :: State -> State -> State

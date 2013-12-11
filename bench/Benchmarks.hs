@@ -13,7 +13,7 @@ testState = State (Quarter 0x08521bd6 0x1fe88837 0xbb2aa576 0x3aa26365)
                   (Quarter 0xe859c100 0xea4d84b7 0x0f619bff 0xbc6e965a)
 
 testStateSerialized :: ByteString
-testStateSerialized = writeState testState
+testStateSerialized = writeBinary testState
 
 main :: IO ()
 main = defaultMain
@@ -25,7 +25,7 @@ main = defaultMain
         , bench "doubleround'" $ whnf doubleround' testState
         , bench "salsa20" $ whnf salsa20 testState
         , bench "salsa20'" $ whnf salsa20' testState
-        , bench "readState" $ whnf readState testStateSerialized
-        , bench "writeState" $ whnf writeState testState
+        , bench "readBinary" $ whnf (readBinary :: ByteString -> Maybe (State, ByteString)) testStateSerialized
+        , bench "writeBinary" $ whnf writeBinary testState
         ]
     ]

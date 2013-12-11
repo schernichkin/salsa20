@@ -18,6 +18,7 @@ instance Arbitrary Quarter where
 instance Arbitrary S.State where
     arbitrary = liftM4 S.State arbitrary arbitrary arbitrary arbitrary
 
+doubleroundTestGroup :: TestName -> (S.State -> S.State) -> F.Test
 doubleroundTestGroup n f = testGroup n $ map (uncurry testCase)
         [ (n ++ " 1", f (S.State (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
                                  (Quarter 0x00000000 0x00000000 0x00000000 0x00000000)
@@ -37,6 +38,7 @@ doubleroundTestGroup n f = testGroup n $ map (uncurry testCase)
                                  (Quarter 0xa74b2ad6 0xbc331c5c 0x1dda24c7 0xee928277)))
         ]
 
+salsa20TestGroup :: TestName -> (S.State -> S.State) -> F.Test
 salsa20TestGroup n f = testGroup n $ map (uncurry testCase)
         [ (n ++ " 0", f (S.State (Quarter 0x00000000 0x00000000 0x00000000 0x00000000)
                                  (Quarter 0x00000000 0x00000000 0x00000000 0x00000000)
@@ -46,22 +48,22 @@ salsa20TestGroup n f = testGroup n $ map (uncurry testCase)
                                  (Quarter 0x00000000 0x00000000 0x00000000 0x00000000)
                                  (Quarter 0x00000000 0x00000000 0x00000000 0x00000000)
                                  (Quarter 0x00000000 0x00000000 0x00000000 0x00000000)))
-        , (n ++ " 1", f (fst $ fromJust $ readState $ pack
+        , (n ++ " 1", f (fst $ fromJust $ readBinary $ pack
                              [ 211, 159, 13, 115, 76, 55, 82, 183, 3, 117, 222, 37, 191, 187, 234, 136
                              , 49,237,179, 48, 1,106,178,219,175,199,166, 48, 86, 16,179,207
                              , 31,240, 32, 63, 15, 83, 93,161,116,147, 48,113,238, 55,204, 36
                              , 79,201,235, 79, 3, 81,156, 47,203, 26,244,243, 88,118,104, 54 ])
-                    @=? (fst $ fromJust $ readState $ pack
+                    @=? (fst $ fromJust $ readBinary $ pack
                              [ 109, 42,178,168,156,240,248,238,168,196,190,203, 26,110,170,154
                              , 29, 29,150, 26,150, 30,235,249,190,163,251, 48, 69,144, 51, 57
                              , 118, 40,152,157,180, 57, 27, 94,107, 42,236, 35, 27,111,114,114
                              , 219,236,232,135,111,155,110, 18, 24,232, 95,158,179, 19, 48,202 ]))
-        , (n ++ " 2", f (fst $ fromJust $ readState $ pack
+        , (n ++ " 2", f (fst $ fromJust $ readBinary $ pack
                              [ 88,118,104, 54, 79,201,235, 79, 3, 81,156, 47,203, 26,244,243
                              , 191,187,234,136,211,159, 13,115, 76, 55, 82,183, 3,117,222, 37
                              , 86, 16,179,207, 49,237,179, 48, 1,106,178,219,175,199,166, 48
                              , 238, 55,204, 36, 31,240, 32, 63, 15, 83, 93,161,116,147, 48,113 ])
-                    @=? (fst $ fromJust $ readState $ pack
+                    @=? (fst $ fromJust $ readBinary $ pack
                              [ 179, 19, 48,202,219,236,232,135,111,155,110, 18, 24,232, 95,158
                              , 26,110,170,154,109, 42,178,168,156,240,248,238,168,196,190,203
                              , 69,144, 51, 57, 29, 29,150, 26,150, 30,235,249,190,163,251, 48
@@ -118,7 +120,8 @@ main = defaultMain
     , doubleroundTestGroup "doubleround'" doubleround'
     , salsa20TestGroup "salsa20" salsa20
     , salsa20TestGroup "salsa20'" salsa20'
-    , testGroup "read/write State" $ map (uncurry testProperty)
-        [ ("readState . writeState == id", \(s :: S.State) -> s == (fst $ fromJust $ readState $ writeState s))
+    , testGroup "read/write byte string" 
+        [ "readBinary . writeBinary == id (State)" `testProperty` \(s :: S.State) -> s == (fst $ fromJust $ readBinary $ writeBinary s)
+        , "readBinary . writeBinary == id (Quarter)" `testProperty` \(s :: S.Quarter) -> s == (fst $ fromJust $ readBinary $ writeBinary s)
         ]
     ]
