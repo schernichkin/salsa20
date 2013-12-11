@@ -221,3 +221,17 @@ salsa' count initState = go count initState
 
 salsa20' :: State -> State
 salsa20' = salsa' rounds20
+
+expand2 :: Quarter -> Quarter -> Quarter -> State
+expand2 (Quarter k00 k01 k02 k03)
+        (Quarter k10 k11 k12 k13)
+        (Quarter  n0  n1  n2  n3) =
+        salsa20 $ State
+        (Quarter  s0 k00 k01 k02)
+        (Quarter k03  s1  n0  n1)
+        (Quarter  n2  n3  s2 k10)
+        (Quarter k11 k12 k13  s3)
+    where s0 = 0x61707865
+          s1 = 0x3320646e
+          s2 = 0x79622d32
+          s3 = 0x6b206574

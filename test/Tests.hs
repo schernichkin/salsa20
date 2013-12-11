@@ -120,6 +120,16 @@ main = defaultMain
     , doubleroundTestGroup "doubleround'" doubleround'
     , salsa20TestGroup "salsa20" salsa20
     , salsa20TestGroup "salsa20'" salsa20'
+    , testGroup "expand" $ map (uncurry testCase)
+        [ ("expand2", expand2 (fst $ fromJust $ readBinary $ pack [1 .. 16])
+                              (fst $ fromJust $ readBinary $ pack [201 .. 216])
+                              (fst $ fromJust $ readBinary $ pack [101 .. 116])
+                          @=? (fst $ fromJust $ readBinary $ pack
+                                   [ 69, 37, 68, 39, 41, 15,107,193,255,139,122, 6,170,233,217, 98
+                                   , 89,144,182,106, 21, 51,200, 65,239, 49,222, 34,215,114, 40,126
+                                   , 104,197, 7,225,197,153, 31, 2,102, 78, 76,176, 84,245,246,184
+                                   , 177,160,133,130, 6, 72,149,119,192,195,132,236,234,103,246, 74]))
+        ]
     , testGroup "read/write byte string" 
         [ "readBinary . writeBinary == id (State)" `testProperty` \(s :: S.State) -> s == (fst $ fromJust $ readBinary $ writeBinary s)
         , "readBinary . writeBinary == id (Quarter)" `testProperty` \(s :: S.Quarter) -> s == (fst $ fromJust $ readBinary $ writeBinary s)
