@@ -1,4 +1,3 @@
-{-# LANGUAGE ScopedTypeVariables #-}
 module Crypto.Cipher.Salsa20.LE where
 
 import           Control.Monad
@@ -38,6 +37,10 @@ instance Storable Quarter where
 sizeOfWord32 :: Int
 sizeOfWord32 = sizeOf (0 :: Word32)
 
+{-# INLINE sizeOfQuarter #-}
+sizeOfQuarter :: Int
+sizeOfQuarter = sizeOf (undefined :: Quarter)
+
 {-# INLINE quarterPlus #-}
 quarterPlus :: Quarter -> Quarter -> Quarter
 quarterPlus (Quarter x0 x1 x2 x3) (Quarter y0 y1 y2 y3) = Quarter (x0 + y0) (x1 + y1) (x2 + y2) (x3 + y3)
@@ -63,13 +66,13 @@ rotateRight (Quarter x0 x1 x2 x3) = (Quarter x3 x0 x1 x2)
 rotated :: (Quarter -> Quarter) -> Quarter -> Quarter
 rotated f = rotateRight . f . rotateLeft
 
-data State = State {-# UNPACK #-} !Quarter
+data Block = Block {-# UNPACK #-} !Quarter
                    {-# UNPACK #-} !Quarter
                    {-# UNPACK #-} !Quarter
                    {-# UNPACK #-} !Quarter
                    deriving ( Show, Eq )
 
-instance Storable State where
+instance Storable Block where
     {-# INLINE sizeOf #-}
     sizeOf _ = sizeOfQuarter * 4
 
@@ -77,49 +80,44 @@ instance Storable State where
     alignment _ = alignment (undefined :: Quarter)
 
     {-# INLINE peek #-}
-    peek ptr = liftM4 State (peek $ castPtr ptr)
+    peek ptr = liftM4 Block (peek $ castPtr ptr)
                             (peek $ ptr `plusPtr` sizeOfQuarter)
                             (peek $ ptr `plusPtr` (sizeOfQuarter * 2))
                             (peek $ ptr `plusPtr` (sizeOfQuarter * 3))
 
     {-# INLINE poke #-}
-    poke ptr (State x0 x1 x2 x3) = do poke (castPtr ptr) x0
+    poke ptr (Block x0 x1 x2 x3) = do poke (castPtr ptr) x0
                                       poke (ptr `plusPtr` sizeOfQuarter) x1
                                       poke (ptr `plusPtr` (sizeOfQuarter * 2)) x2
                                       poke (ptr `plusPtr` (sizeOfQuarter * 3)) x3
 
-{-# INLINE sizeOfQuarter #-}
-sizeOfQuarter :: Int
-sizeOfQuarter = sizeOf (undefined :: Quarter)
-
-{-# INLINE sizeOfState #-}
-sizeOfState :: Int
-sizeOfState = sizeOf (undefined :: State)
-
 {-# INLINE readBinary #-}
 {-# SPECIALIZE readBinary :: ByteString -> Maybe (Quarter, ByteString) #-}
-{-# SPECIALIZE readBinary :: ByteString -> Maybe (State, ByteString) #-}
-readBinary :: forall a . (Storable a) => ByteString -> Maybe (a, ByteString)
-readBinary bs = case toForeignPtr bs of
-                   (p, s, l) | l < size  -> Nothing
-                             | otherwise -> Just ( inlinePerformIO $ withForeignPtr p $ peek . castPtr
-                                                 , fromForeignPtr p (s + size) (l - size))
-    where size = sizeOf (undefined :: a)
+{-# SPECIALIZE readBinary :: ByteString -> Maybe (Block, ByteString) #-}
+{-# SPECIALIZE readBinary :: ByteString -> Maybe (Key128, ByteString) #-}
+{-# SPECIALIZE readBinary :: ByteString -> Maybe (Key256, ByteString) #-}
+readBinary :: (Storable a) => ByteString -> Maybe (a, ByteString)
+readBinary bs | l < size = Nothing
+              | otherwise = Just (value, fromForeignPtr p (s + size) (l - size))
+    where (p, s, l) = toForeignPtr bs
+          value = inlinePerformIO $ withForeignPtr p $ peek . castPtr
+          size = sizeOf value
 
 {-# INLINE writeBinary #-}
 {-# SPECIALIZE writeBinary :: Quarter -> ByteString #-}
-{-# SPECIALIZE writeBinary :: State -> ByteString #-}
-writeBinary :: forall a . (Storable a) => a -> ByteString
-writeBinary s = unsafeCreate size $ \p -> poke (castPtr p) s
-    where size = sizeOf (undefined :: a)
+{-# SPECIALIZE writeBinary :: Block -> ByteString #-}
+{-# SPECIALIZE writeBinary :: Key128 -> ByteString #-}
+{-# SPECIALIZE writeBinary :: Key256 -> ByteString #-}
+writeBinary :: (Storable a) => a -> ByteString
+writeBinary s = unsafeCreate (sizeOf s) $ \p -> poke (castPtr p) s
 
 {-# INLINE statePlus #-}
-statePlus :: State -> State -> State
-statePlus (State x0 x1 x2 x3) (State y0 y1 y2 y3) = State (x0 `quarterPlus` y0) (x1 `quarterPlus` y1) (x2 `quarterPlus` y2) (x3 `quarterPlus` y3)
+statePlus :: Block -> Block -> Block
+statePlus (Block x0 x1 x2 x3) (Block y0 y1 y2 y3) = Block (x0 `quarterPlus` y0) (x1 `quarterPlus` y1) (x2 `quarterPlus` y2) (x3 `quarterPlus` y3)
 
 {-# INLINE rowround #-}
-rowround :: State -> State
-rowround (State x0 x1 x2 x3) = State y0 y1 y2 y3
+rowround :: Block -> Block
+rowround (Block x0 x1 x2 x3) = Block y0 y1 y2 y3
     where
         y0 =                               quarterround x0
         y1 =  rotated                      quarterround x1
@@ -127,37 +125,37 @@ rowround (State x0 x1 x2 x3) = State y0 y1 y2 y3
         y3 = (rotated . rotated . rotated) quarterround x3
 
 {-# INLINE transpose #-}
-transpose :: State -> State
-transpose (State (Quarter  x0  x1  x2  x3)
+transpose :: Block -> Block
+transpose (Block (Quarter  x0  x1  x2  x3)
                  (Quarter  x4  x5  x6  x7)
                  (Quarter  x8  x9 x10 x11)
                  (Quarter x12 x13 x14 x15)) =
-           State (Quarter  x0  x4  x8 x12)
+           Block (Quarter  x0  x4  x8 x12)
                  (Quarter  x1  x5  x9 x13)
                  (Quarter  x2  x6 x10 x14)
                  (Quarter  x3  x7 x11 x15)
 
 {-# INLINE transposed #-}
-transposed :: (State -> State) -> State -> State
+transposed :: (Block -> Block) -> Block -> Block
 transposed f = transpose . f . transpose
 
 {-# INLINE columnround #-}
-columnround :: State -> State
+columnround :: Block -> Block
 columnround = transposed rowround
 
 {-# INLINE doubleround #-}
-doubleround :: State -> State
+doubleround :: Block -> Block
 doubleround = rowround . columnround
 
 -- | Manually unrolled doubleround function
 -- Vanilla code runs faster for some reason
 -- I've left manually expanded code for profiling
 {-# INLINE doubleround' #-}
-doubleround' (State (Quarter  x0  x1  x2  x3)
+doubleround' (Block (Quarter  x0  x1  x2  x3)
                     (Quarter  x4  x5  x6  x7)
                     (Quarter  x8  x9 x10 x11)
                     (Quarter x12 x13 x14 x15)) =
-              State (Quarter  z0  z1  z2  z3)
+              Block (Quarter  z0  z1  z2  z3)
                     (Quarter  z4  z5  z6  z7)
                     (Quarter  z8  z9 z10 z11)
                     (Quarter z12 z13 z14 z15)
@@ -206,36 +204,100 @@ rounds12 = RoundCount 6
 rounds20 :: RoundCount
 rounds20 = RoundCount 10
 
-salsa :: RoundCount -> State -> State
+type SalsaCore = Block -> Block
+
+salsa :: RoundCount -> SalsaCore
 salsa count initState = go count initState
     where go (RoundCount 0) = statePlus initState
           go (RoundCount c) = go (RoundCount $ c - 1) . doubleround
 
-salsa20 :: State -> State
+salsa20 :: SalsaCore
 salsa20 = salsa rounds20
 
-salsa' :: RoundCount -> State -> State
+salsa' :: RoundCount -> SalsaCore
 salsa' count initState = go count initState
     where go (RoundCount 0) = statePlus initState
           go (RoundCount c) = go (RoundCount $ c - 1) . doubleround'
 
-salsa20' :: State -> State
+salsa20' :: SalsaCore
 salsa20' = salsa' rounds20
 
-{-# INLINE expand #-}
-expand :: Quarter -> Quarter -> Quarter -> Quarter -> State
-expand (Quarter  s0  s1  s2  s3)
-       (Quarter k00 k01 k02 k03)
-       (Quarter k10 k11 k12 k13)
-       (Quarter  n0  n1  n2  n3) =
-       salsa20 $ State
-       (Quarter  s0 k00 k01 k02)
-       (Quarter k03  s1  n0  n1)
-       (Quarter  n2  n3  s2 k10)
-       (Quarter k11 k12 k13  s3)
+{-# INLINE expandSigma #-}
+expandSigma :: SalsaCore -> Quarter -> Quarter -> Quarter -> Quarter -> Block
+expandSigma salsaCore
+            (Quarter  s0  s1  s2  s3)
+            (Quarter k00 k01 k02 k03)
+            (Quarter k10 k11 k12 k13)
+            (Quarter  n0  n1  n2  n3) =
+            salsaCore $ Block
+            (Quarter  s0 k00 k01 k02)
+            (Quarter k03  s1  n0  n1)
+            (Quarter  n2  n3  s2 k10)
+            (Quarter k11 k12 k13  s3)
 
-expand16 :: Quarter -> Quarter -> State
-expand16 k = expand (Quarter 0x61707865 0x3120646e 0x79622d36 0x6b206574) k k
+newtype Key128 = Key128 Quarter deriving ( Show, Eq )
 
-expand32 :: Quarter -> Quarter -> Quarter -> State
-expand32 = expand (Quarter 0x61707865 0x3320646e 0x79622d32 0x6b206574)
+instance Storable Key128 where
+    {-# INLINE sizeOf #-}
+    sizeOf _ = sizeOfQuarter
+
+    {-# INLINE alignment #-}
+    alignment _ = alignment (undefined :: Quarter)
+
+    {-# INLINE peek #-}
+    peek ptr = liftM Key128 (peek $ castPtr ptr)
+
+    {-# INLINE poke #-}
+    poke ptr (Key128 k0) = poke (castPtr ptr) k0
+
+{-# INLINE expand128 #-}
+expand128 :: SalsaCore -> Key128 -> Quarter -> Block
+expand128 salsaCore (Key128 k0) = expandSigma salsaCore (Quarter 0x61707865 0x3120646e 0x79622d36 0x6b206574) k0 k0
+
+data Key256 = Key256 {-# UNPACK #-} !Quarter
+                     {-# UNPACK #-} !Quarter
+              deriving ( Show, Eq )
+
+instance Storable Key256 where
+    {-# INLINE sizeOf #-}
+    sizeOf _ = sizeOfQuarter * 2
+
+    {-# INLINE alignment #-}
+    alignment _ = alignment (undefined :: Quarter)
+
+    {-# INLINE peek #-}
+    peek ptr = liftM2 Key256 (peek $ castPtr ptr)
+                             (peek $ ptr `plusPtr` sizeOfQuarter)
+
+    {-# INLINE poke #-}
+    poke ptr (Key256 k0 k1) = do poke (castPtr ptr) k0
+                                 poke (ptr `plusPtr` sizeOfQuarter) k1
+
+{-# INLINE expand256 #-}
+expand256 :: SalsaCore -> Key256 -> Quarter -> Block
+expand256 salsaCore (Key256 k0 k1) = expandSigma salsaCore (Quarter 0x61707865 0x3320646e 0x79622d32 0x6b206574) k0 k1
+
+data Nounce = Nounce {-# UNPACK #-} !Word32
+                     {-# UNPACK #-} !Word32
+              deriving ( Show, Eq )
+
+newtype SeqNum = SeqNum Word64 deriving ( Show, Eq )
+
+newtype KeyProcess = KeyProcess (SeqNum -> (Block, KeyProcess))
+
+newtype CryptProcess = CryptProcess (ByteString -> (ByteString, CryptProcess))
+
+createCryptProcess :: (Block -> Block) -> ((Block -> Block) -> Key128 -> Quarter -> Block) -> Key128 -> Nounce -> CryptProcess
+createCryptProcess salsaCore = undefined
+    where
+        
+        
+{-
+crypt (Cont f) = f
+crypt (New key (Nounce n0 n1)) = undefined
+    where keyState :: Word64 -> Block
+          keyState seqNum = expand' $ Quarter n0 n1 undefined undefined
+          expand' = case key of
+                        Key16 k0    -> expand16 k0
+                        Key32 k0 k1 -> expand32 k0 k1   
+-}
