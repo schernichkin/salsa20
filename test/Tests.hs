@@ -160,4 +160,5 @@ main = defaultMain
         , "readBinary/writeBinary on shorter string" `testProperty` \(s :: S.Block) -> (Nothing :: Maybe (S.Block, ByteString)) == (readBinary $ BS.tail $ writeBinary s)
         ]
     , eCrypt128
+    , eCrypt256
     ]
