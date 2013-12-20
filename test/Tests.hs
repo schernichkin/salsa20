@@ -4,8 +4,11 @@ module Tests where
 
 import           Control.Monad
 import           Crypto.Cipher.Salsa20                as S
+import           Data.Bits
 import           Data.ByteString                      as BS hiding (map)
+import           Data.Char
 import           Data.Maybe
+import           ECrypt
 import           Test.Framework                       as F
 import           Test.Framework.Providers.HUnit
 import           Test.Framework.Providers.QuickCheck2
@@ -17,6 +20,13 @@ instance Arbitrary Quarter where
 
 instance Arbitrary S.Block where
     arbitrary = liftM4 S.Block arbitrary arbitrary arbitrary arbitrary
+
+l2bs :: String -> ByteString
+l2bs = BS.unfoldr convert
+    where
+        convert (a:b:xs) = Just $ (fromIntegral $ (digitToInt a) `shiftL` 4 + (digitToInt b), xs)
+        convert (a:_) = error "Bytestring literal length should be even."
+        convert [] = Nothing
 
 doubleroundTestGroup :: TestName -> (S.Block -> S.Block) -> F.Test
 doubleroundTestGroup n f = testGroup n $ map (uncurry testCase)
@@ -71,7 +81,13 @@ salsa20TestGroup n f = testGroup n $ map (uncurry testCase)
 
 main :: IO ()
 main = defaultMain
-    [ testGroup "quarterround" $ map (uncurry testCase)
+    [ testGroup "l2bs" $ map (uncurry testCase)
+        [ ("test1", l2bs "0f" @=? pack [15] )
+        , ("test2", l2bs "ff" @=? pack [255] )
+        , ("test3", l2bs "ff05" @=? pack [255, 05] )
+        , ("test4", l2bs "ff05010203" @=? pack [255, 05, 01, 02, 03] )
+        ]
+    , testGroup "quarterround" $ map (uncurry testCase)
         [ ("quarterround 1", quarterround (Quarter 0x00000000 0x00000000 0x00000000 0x00000000) @=? (Quarter 0x00000000 0x00000000 0x00000000 0x00000000))
         , ("quarterround 2", quarterround (Quarter 0x00000001 0x00000000 0x00000000 0x00000000) @=? (Quarter 0x08008145 0x00000080 0x00010200 0x20500000))
         , ("quarterround 3", quarterround (Quarter 0x00000000 0x00000001 0x00000000 0x00000000) @=? (Quarter 0x88000100 0x00000001 0x00000200 0x00402000))
@@ -138,9 +154,10 @@ main = defaultMain
                                    , 104,197, 7,225,197,153, 31, 2,102, 78, 76,176, 84,245,246,184
                                    , 177,160,133,130, 6, 72,149,119,192,195,132,236,234,103,246, 74]))
         ]
-    , testGroup "read/write byte string" 
+    , testGroup "read/write byte string"
         [ "readBinary . writeBinary == id (Block)" `testProperty` \(s :: S.Block) -> s == (fst $ fromJust $ readBinary $ writeBinary s)
         , "readBinary . writeBinary == id (Quarter)" `testProperty` \(s :: S.Quarter) -> s == (fst $ fromJust $ readBinary $ writeBinary s)
         , "readBinary/writeBinary on shorter string" `testProperty` \(s :: S.Block) -> (Nothing :: Maybe (S.Block, ByteString)) == (readBinary $ BS.tail $ writeBinary s)
         ]
+    , eCrypt128
     ]

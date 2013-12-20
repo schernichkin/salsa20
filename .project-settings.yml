@@ -2,20 +2,10 @@ module-template: ! 'module MODULE_NAME where
 
 '
 extensions: {}
-environment: ghc-7.4.2-stable-13.09
+environment: ghc-7.8-unstable
 cabal-file: project.cabal
 hidden-packages: ''
-modules:
-  Crypto.Cipher.Salsa20.LE:
-    filename: src/Crypto/Cipher/Salsa20/LE.hs
-  Tests:
-    filename: test/Tests.hs
-  Crypto.Cipher.Salsa20:
-    filename: src/Crypto/Cipher/Salsa20.hs
-  Benchmarks:
-    filename: bench/Benchmarks.hs
-  Main(tmp/Main.hs):
-    filename: tmp/Main.hs
 version: 1
 extra-packages: ''
 ghc-args: []
+excluded-modules: []

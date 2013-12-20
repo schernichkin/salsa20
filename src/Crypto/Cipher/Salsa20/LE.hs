@@ -91,11 +91,11 @@ instance Storable Block where
                                       poke (ptr `plusPtr` (sizeOfQuarter * 2)) x2
                                       poke (ptr `plusPtr` (sizeOfQuarter * 3)) x3
 
-{-# INLINE readBinary #-}
-{-# SPECIALIZE readBinary :: ByteString -> Maybe (Quarter, ByteString) #-}
-{-# SPECIALIZE readBinary :: ByteString -> Maybe (Block, ByteString) #-}
-{-# SPECIALIZE readBinary :: ByteString -> Maybe (Key128, ByteString) #-}
-{-# SPECIALIZE readBinary :: ByteString -> Maybe (Key256, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Quarter, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Block, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key128, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key256, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Nounce, ByteString) #-}
 readBinary :: (Storable a) => ByteString -> Maybe (a, ByteString)
 readBinary bs | l < size = Nothing
               | otherwise = Just (value, fromForeignPtr p (s + size) (l - size))
@@ -103,11 +103,11 @@ readBinary bs | l < size = Nothing
           value = inlinePerformIO $ withForeignPtr p $ peek . castPtr
           size = sizeOf value
 
-{-# INLINE writeBinary #-}
-{-# SPECIALIZE writeBinary :: Quarter -> ByteString #-}
-{-# SPECIALIZE writeBinary :: Block -> ByteString #-}
-{-# SPECIALIZE writeBinary :: Key128 -> ByteString #-}
-{-# SPECIALIZE writeBinary :: Key256 -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Quarter -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Block -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Key128 -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Key256 -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Nounce -> ByteString #-}
 writeBinary :: (Storable a) => a -> ByteString
 writeBinary s = unsafeCreate (sizeOf s) $ \p -> poke (castPtr p) s
 
@@ -193,37 +193,46 @@ doubleround' (Block (Quarter  x0  x1  x2  x3)
           z10 =  y10 `xor` (( z9 +  z8) `rotateL` 18)
           z15 =  y15 `xor` ((z14 + z13) `rotateL` 18)
 
-newtype RoundCount = RoundCount Int
+newtype RoundCount = RoundCount Int -- TO DO: do not export
 
+{-# INLINE rounds8 #-}
 rounds8 :: RoundCount
 rounds8 = RoundCount 4
 
+{-# INLINE rounds12 #-}
 rounds12 :: RoundCount
 rounds12 = RoundCount 6
 
+{-# INLINE rounds20 #-}
 rounds20 :: RoundCount
 rounds20 = RoundCount 10
 
-type SalsaCore = Block -> Block
+type Core = Block -> Block
 
-salsa :: RoundCount -> SalsaCore
-salsa count initState = go count initState
-    where go (RoundCount 0) = statePlus initState
-          go (RoundCount c) = go (RoundCount $ c - 1) . doubleround
+{-# INLINE salsa #-}
+salsa :: Int -> Core
+salsa rounds initState | (even rounds) && (rounds > 0) = go rounds initState
+                       | otherwise = error "Round count shoul be positive even number."
+    where
+        go 0 = statePlus initState
+        go c = go (c - 2) . doubleround
 
-salsa20 :: SalsaCore
-salsa20 = salsa rounds20
+{-# INLINE salsa20 #-}
+salsa20 :: Core
+salsa20 = salsa 20
 
-salsa' :: RoundCount -> SalsaCore
+{-# INLINE salsa' #-}
+salsa' :: RoundCount -> Core
 salsa' count initState = go count initState
     where go (RoundCount 0) = statePlus initState
           go (RoundCount c) = go (RoundCount $ c - 1) . doubleround'
 
-salsa20' :: SalsaCore
+{-# INLINE salsa20' #-}
+salsa20' :: Core
 salsa20' = salsa' rounds20
 
 {-# INLINE expandSigma #-}
-expandSigma :: SalsaCore -> Quarter -> Quarter -> Quarter -> Quarter -> Block
+expandSigma :: Core -> Quarter -> Quarter -> Quarter -> Quarter -> Block
 expandSigma salsaCore
             (Quarter  s0  s1  s2  s3)
             (Quarter k00 k01 k02 k03)
@@ -250,9 +259,11 @@ instance Storable Key128 where
     {-# INLINE poke #-}
     poke ptr (Key128 k0) = poke (castPtr ptr) k0
 
+type Expand key = key -> Quarter -> Block
+    
 {-# INLINE expand128 #-}
-expand128 :: SalsaCore -> Key128 -> Quarter -> Block
-expand128 salsaCore (Key128 k0) = expandSigma salsaCore (Quarter 0x61707865 0x3120646e 0x79622d36 0x6b206574) k0 k0
+expand128 :: Core -> Expand Key128
+expand128 core (Key128 k0) = expandSigma core (Quarter 0x61707865 0x3120646e 0x79622d36 0x6b206574) k0 k0
 
 data Key256 = Key256 {-# UNPACK #-} !Quarter
                      {-# UNPACK #-} !Quarter
@@ -274,24 +285,44 @@ instance Storable Key256 where
                                  poke (ptr `plusPtr` sizeOfQuarter) k1
 
 {-# INLINE expand256 #-}
-expand256 :: SalsaCore -> Key256 -> Quarter -> Block
-expand256 salsaCore (Key256 k0 k1) = expandSigma salsaCore (Quarter 0x61707865 0x3320646e 0x79622d32 0x6b206574) k0 k1
+expand256 :: Core -> Expand Key256
+expand256 core (Key256 k0 k1) = expandSigma core (Quarter 0x61707865 0x3320646e 0x79622d32 0x6b206574) k0 k1
 
 data Nounce = Nounce {-# UNPACK #-} !Word32
                      {-# UNPACK #-} !Word32
               deriving ( Show, Eq )
 
+instance Storable Nounce where
+    {-# INLINE sizeOf #-}
+    sizeOf _ = sizeOfWord32 * 2
+
+    {-# INLINE alignment #-}
+    alignment _ = alignment (undefined :: Word32)
+
+    {-# INLINE peek #-}
+    peek ptr = liftM2 Nounce (peek $ castPtr ptr)
+                             (peek $ ptr `plusPtr` sizeOfWord32)
+
+    {-# INLINE poke #-}
+    poke ptr (Nounce x0 x1) = do poke (castPtr ptr) x0
+                                 poke (ptr `plusPtr` sizeOfWord32) x1
+
 newtype SeqNum = SeqNum Word64 deriving ( Show, Eq )
 
-newtype KeyProcess = KeyProcess (SeqNum -> (Block, KeyProcess))
+data Keystream = Keystream {-# UNPACK #-} !Block
+                                           Keystream
+                 deriving ( Show, Eq )
+
+keystream :: Expand key -> key -> Nounce -> SeqNum -> Keystream
+keystream expand key (Nounce n0 n1) = go
+    where go seqNum@(SeqNum i) = Keystream (expand' seqNum) $ go (SeqNum $ i + 1)
+          expand' (SeqNum i) = expand key $ Quarter n0 n1 (fromIntegral i) (fromIntegral $ i `shiftR` 32)
 
 newtype CryptProcess = CryptProcess (ByteString -> (ByteString, CryptProcess))
 
 createCryptProcess :: (Block -> Block) -> ((Block -> Block) -> Key128 -> Quarter -> Block) -> Key128 -> Nounce -> CryptProcess
 createCryptProcess salsaCore = undefined
     where
-        
-        
 {-
 crypt (Cont f) = f
 crypt (New key (Nounce n0 n1)) = undefined
