@@ -120,16 +120,16 @@ main = defaultMain
     , doubleroundTestGroup "doubleround" doubleround
     , salsa20TestGroup "salsa20" (salsa 20)
     , testGroup "expand" $ map (uncurry testCase)
-        [ ("expand128", expand128 (salsa 20)
-                                  (fst $ fromJust $ readBinary $ pack [1 .. 16])
+        [ ("expand 128", expand (salsa 20)
+                                  ((fst $ fromJust $ readBinary $ pack [1 .. 16]) `asTypeOf` (undefined :: Key128))
                                   (fst $ fromJust $ readBinary $ pack [101 .. 116])
                               @=? (fst $ fromJust $ readBinary $ pack
                                    [ 39,173, 46,248, 30,200, 82, 17, 48, 67,254,239, 37, 18, 13,247
                                    , 241,200, 61,144, 10, 55, 50,185, 6, 47,246,253,143, 86,187,225
                                    , 134, 85,110,246,161,163, 43,235,231, 94,171, 51,145,214,112, 29
                                    , 14,232, 5, 16,151,140,183,141,171, 9,122,181,104,182,177,193 ]))
-        , ("expand256", expand256 (salsa 20)
-                              (fst $ fromJust $ readBinary $ pack $ [1 .. 16] ++ [201 .. 216])
+        , ("expand 256", expand (salsa 20)
+                              ((fst $ fromJust $ readBinary $ pack $ [1 .. 16] ++ [201 .. 216]) `asTypeOf` (undefined :: Key256))
                               (fst $ fromJust $ readBinary $ pack [101 .. 116])
                           @=? (fst $ fromJust $ readBinary $ pack
                                    [ 69, 37, 68, 39, 41, 15,107,193,255,139,122, 6,170,233,217, 98

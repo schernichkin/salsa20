@@ -27,11 +27,11 @@ keystreamToBytestring = fromChunks . go
     where
         go (Keystream block keystream) = writeBinary block : go keystream
 
-testVector :: (Storable key) => Expand key -> String -> String -> String -> [((Int64, Int64), String)] -> F.Test
-testVector f name key iv = testGroup name . map testSection
+testVector :: (Key key) => String -> Core -> key -> Nounce -> [((Int64, Int64), LBS.ByteString)] -> F.Test
+testVector name core key nounce = testGroup name . map testSection
     where
-        stream = keystream f (readHex key) (readHex iv) (SeqNum 0)
-        testSection (section@(from, to), excepted) = testCase ("section " ++ show section) $ actual @=? fromChunks [hexToByteString excepted]
+        stream = keystream core key nounce 0
+        testSection (section@(from, to), excepted) = testCase ("section " ++ show section) $ actual @=? excepted
             where
                 actual = LBS.take (to - from + 1) $ LBS.drop from $ keystreamToBytestring stream
 
@@ -1730,7 +1730,7 @@ eCrypt128 = testGroup "eCrypt128"
                           ]
     ]
     where
-        testVector128 = testVector $ expand128 $ salsa 20
+        testVector128 name key iv = testVector name (salsa 20) (readHex key `asTypeOf` (undefined :: Key128)) (readHex iv) . map (\(a, b) -> (a, fromChunks [hexToByteString b]))
         
 eCrypt256 :: F.Test
 eCrypt256 = testGroup "eCrypt256"
@@ -3796,4 +3796,4 @@ eCrypt256 = testGroup "eCrypt256"
                           ]
     ]
     where
-        testVector256 = testVector $ expand256 $ salsa 20
+        testVector256 name key iv = testVector name (salsa 20) (readHex key `asTypeOf` (undefined :: Key256)) (readHex iv) . map (\(a, b) -> (a, fromChunks [hexToByteString b]))

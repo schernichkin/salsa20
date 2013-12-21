@@ -95,26 +95,6 @@ instance Storable Block where
         where
             ptr' = castPtr ptr
 
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Quarter, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Block, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key128, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key256, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Nounce, ByteString) #-}
-readBinary :: (Storable a) => ByteString -> Maybe (a, ByteString)
-readBinary bs | l < size = Nothing
-              | otherwise = Just (value, fromForeignPtr p (s + size) (l - size))
-    where (p, s, l) = toForeignPtr bs
-          value = inlinePerformIO $ withForeignPtr p $ peek . castPtr
-          size = sizeOf value
-
-{-# SPECIALIZE INLINE writeBinary :: Quarter -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Block -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Key128 -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Key256 -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Nounce -> ByteString #-}
-writeBinary :: (Storable a) => a -> ByteString
-writeBinary s = unsafeCreate (sizeOf s) $ \p -> poke (castPtr p) s
-
 {-# INLINE statePlus #-}
 statePlus :: Block -> Block -> Block
 statePlus (Block x0 x1 x2 x3) (Block y0 y1 y2 y3) = Block (x0 `quarterPlus` y0) (x1 `quarterPlus` y1) (x2 `quarterPlus` y2) (x3 `quarterPlus` y3)
@@ -161,6 +141,9 @@ salsa rounds initState | (even rounds) && (rounds > 0) = go rounds initState
         go 0 = statePlus initState
         go c = go (c - 2) . doubleround
 
+class Key a where
+    expand :: Core -> a -> Quarter -> Block
+
 {-# INLINE expandSigma #-}
 expandSigma :: Core -> Quarter -> Quarter -> Quarter -> Quarter -> Block
 expandSigma salsaCore
@@ -176,6 +159,10 @@ expandSigma salsaCore
 
 newtype Key128 = Key128 Quarter deriving ( Show, Eq )
 
+instance Key Key128 where
+    {-# INLINE expand #-}
+    expand core (Key128 k0) = expandSigma core (Quarter 0x61707865 0x3120646e 0x79622d36 0x6b206574) k0 k0
+
 instance Storable Key128 where
     {-# INLINE sizeOf #-}
     sizeOf _ = sizeOf (undefined :: Quarter)
@@ -189,15 +176,13 @@ instance Storable Key128 where
     {-# INLINE poke #-}
     poke ptr (Key128 k0) = poke (castPtr ptr) k0
 
-type Expand key = key -> Quarter -> Block
-
-{-# INLINE expand128 #-}
-expand128 :: Core -> Expand Key128
-expand128 core (Key128 k0) = expandSigma core (Quarter 0x61707865 0x3120646e 0x79622d36 0x6b206574) k0 k0
-
 data Key256 = Key256 {-# UNPACK #-} !Quarter
                      {-# UNPACK #-} !Quarter
               deriving ( Show, Eq )
+
+instance Key Key256 where
+    {-# INLINE expand #-}
+    expand core (Key256 k0 k1) = expandSigma core (Quarter 0x61707865 0x3320646e 0x79622d32 0x6b206574) k0 k1
 
 instance Storable Key256 where
     {-# INLINE sizeOf #-}
@@ -214,16 +199,11 @@ instance Storable Key256 where
             ptr' = castPtr ptr
 
     {-# INLINE poke #-}
-    poke ptr (Key256 k0 k1) = do 
+    poke ptr (Key256 k0 k1) = do
         pokeElemOff ptr' 0 k0
         pokeElemOff ptr' 1 k1
         where
             ptr' = castPtr ptr
-
--- to do: использовать класс типов 
-{-# INLINE expand256 #-}
-expand256 :: Core -> Expand Key256
-expand256 core (Key256 k0 k1) = expandSigma core (Quarter 0x61707865 0x3320646e 0x79622d32 0x6b206574) k0 k1
 
 data Nounce = Nounce {-# UNPACK #-} !Word32
                      {-# UNPACK #-} !Word32
@@ -250,28 +230,31 @@ instance Storable Nounce where
         where
             ptr' = castPtr ptr
 
-newtype SeqNum = SeqNum Word64 deriving ( Show, Eq )
-
 data Keystream = Keystream {-# UNPACK #-} !Block
                                            Keystream
                  deriving ( Show, Eq )
 
-keystream :: Expand key -> key -> Nounce -> SeqNum -> Keystream
-keystream expand key (Nounce n0 n1) = go
-    where go seqNum@(SeqNum i) = Keystream (expand' seqNum) $ go (SeqNum $ i + 1)
-          expand' (SeqNum i) = expand key $ Quarter n0 n1 (fromIntegral i) (fromIntegral $ i `shiftR` 32)
+keystream :: (Key key) => Core -> key -> Nounce -> Word64 -> Keystream
+keystream core key (Nounce n0 n1) = go
+    where go i = Keystream (expand' i) $ go (i + 1)
+          expand' i = expand core key $ Quarter n0 n1 (fromIntegral i) (fromIntegral $ i `unsafeShiftR` 32)
 
-newtype CryptProcess = CryptProcess (ByteString -> (ByteString, CryptProcess))
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Quarter, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Block, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key128, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key256, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Nounce, ByteString) #-}
+readBinary :: (Storable a) => ByteString -> Maybe (a, ByteString)
+readBinary bs | l < size = Nothing
+              | otherwise = Just (value, fromForeignPtr p (s + size) (l - size))
+    where (p, s, l) = toForeignPtr bs
+          value = inlinePerformIO $ withForeignPtr p $ peek . castPtr
+          size = sizeOf value
 
-createCryptProcess :: (Block -> Block) -> ((Block -> Block) -> Key128 -> Quarter -> Block) -> Key128 -> Nounce -> CryptProcess
-createCryptProcess salsaCore = undefined
-    where
-{-
-crypt (Cont f) = f
-crypt (New key (Nounce n0 n1)) = undefined
-    where keyState :: Word64 -> Block
-          keyState seqNum = expand' $ Quarter n0 n1 undefined undefined
-          expand' = case key of
-                        Key16 k0    -> expand16 k0
-                        Key32 k0 k1 -> expand32 k0 k1   
--}
+{-# SPECIALIZE INLINE writeBinary :: Quarter -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Block -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Key128 -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Key256 -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Nounce -> ByteString #-}
+writeBinary :: (Storable a) => a -> ByteString
+writeBinary s = unsafeCreate (sizeOf s) $ \p -> poke (castPtr p) s
