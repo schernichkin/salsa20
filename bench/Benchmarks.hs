@@ -1,5 +1,3 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-
 module Benchmarks where
 
 import           Criterion.Main
@@ -22,9 +20,7 @@ main = defaultMain
         , bench "rowround" $ whnf rowround testState
         , bench "columnround" $ whnf columnround testState
         , bench "doubleround" $ whnf doubleround testState
-        , bench "doubleround'" $ whnf doubleround' testState
-        , bench "salsa20" $ whnf salsa20 testState
-        , bench "salsa20'" $ whnf salsa20' testState
+        , bench "salsa20" $ whnf (salsa 20) testState
         , bench "readBinary" $ whnf (readBinary :: ByteString -> Maybe (Block, ByteString)) testStateSerialized
         , bench "writeBinary" $ whnf writeBinary testState
         ]

@@ -16,30 +16,28 @@ data Quarter = Quarter {-# UNPACK #-} !Word32
 
 instance Storable Quarter where
     {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOfWord32 * 4
+    sizeOf _ = sizeOf (undefined :: Word32) * 4
 
     {-# INLINE alignment #-}
-    alignment _ = alignment (0 :: Word32)
+    alignment _ = alignment (undefined :: Word32)
 
     {-# INLINE peek #-}
-    peek ptr = liftM4 Quarter (peek $ castPtr ptr)
-                              (peek $ ptr `plusPtr` sizeOfWord32)
-                              (peek $ ptr `plusPtr` (sizeOfWord32 * 2))
-                              (peek $ ptr `plusPtr` (sizeOfWord32 * 3))
+    peek ptr =
+        liftM4 Quarter (peekElemOff ptr' 0)
+                       (peekElemOff ptr' 1)
+                       (peekElemOff ptr' 2)
+                       (peekElemOff ptr' 3)
+        where
+            ptr' = castPtr ptr
 
     {-# INLINE poke #-}
-    poke ptr (Quarter x0 x1 x2 x3) = do poke (castPtr ptr) x0
-                                        poke (ptr `plusPtr` sizeOfWord32) x1
-                                        poke (ptr `plusPtr` (sizeOfWord32 * 2)) x2
-                                        poke (ptr `plusPtr` (sizeOfWord32 * 3)) x3
-
-{-# INLINE sizeOfWord32 #-}
-sizeOfWord32 :: Int
-sizeOfWord32 = sizeOf (0 :: Word32)
-
-{-# INLINE sizeOfQuarter #-}
-sizeOfQuarter :: Int
-sizeOfQuarter = sizeOf (undefined :: Quarter)
+    poke ptr (Quarter x0 x1 x2 x3) = do
+        pokeElemOff ptr' 0 x0
+        pokeElemOff ptr' 1 x1
+        pokeElemOff ptr' 2 x2
+        pokeElemOff ptr' 3 x3
+        where
+            ptr' = castPtr ptr
 
 {-# INLINE quarterPlus #-}
 quarterPlus :: Quarter -> Quarter -> Quarter
@@ -74,22 +72,28 @@ data Block = Block {-# UNPACK #-} !Quarter
 
 instance Storable Block where
     {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOfQuarter * 4
+    sizeOf _ = sizeOf (undefined :: Quarter) * 4
 
     {-# INLINE alignment #-}
     alignment _ = alignment (undefined :: Quarter)
 
     {-# INLINE peek #-}
-    peek ptr = liftM4 Block (peek $ castPtr ptr)
-                            (peek $ ptr `plusPtr` sizeOfQuarter)
-                            (peek $ ptr `plusPtr` (sizeOfQuarter * 2))
-                            (peek $ ptr `plusPtr` (sizeOfQuarter * 3))
+    peek ptr =
+        liftM4 Block (peekElemOff ptr' 0)
+                     (peekElemOff ptr' 1)
+                     (peekElemOff ptr' 2)
+                     (peekElemOff ptr' 3)
+        where
+            ptr' = castPtr ptr
 
     {-# INLINE poke #-}
-    poke ptr (Block x0 x1 x2 x3) = do poke (castPtr ptr) x0
-                                      poke (ptr `plusPtr` sizeOfQuarter) x1
-                                      poke (ptr `plusPtr` (sizeOfQuarter * 2)) x2
-                                      poke (ptr `plusPtr` (sizeOfQuarter * 3)) x3
+    poke ptr (Block x0 x1 x2 x3) = do 
+        pokeElemOff ptr' 0 x0
+        pokeElemOff ptr' 1 x1
+        pokeElemOff ptr' 2 x2
+        pokeElemOff ptr' 3 x3
+        where
+            ptr' = castPtr ptr
 
 {-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Quarter, ByteString) #-}
 {-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Block, ByteString) #-}
@@ -147,66 +151,6 @@ columnround = transposed rowround
 doubleround :: Block -> Block
 doubleround = rowround . columnround
 
--- | Manually unrolled doubleround function
--- Vanilla code runs faster for some reason
--- I've left manually expanded code for profiling
-{-# INLINE doubleround' #-}
-doubleround' (Block (Quarter  x0  x1  x2  x3)
-                    (Quarter  x4  x5  x6  x7)
-                    (Quarter  x8  x9 x10 x11)
-                    (Quarter x12 x13 x14 x15)) =
-              Block (Quarter  z0  z1  z2  z3)
-                    (Quarter  z4  z5  z6  z7)
-                    (Quarter  z8  z9 z10 z11)
-                    (Quarter z12 z13 z14 z15)
-    where y4  =  x4  `xor` (( x0 + x12) `rotateL`  7)
-          y9  =  x9  `xor` (( x5 +  x1) `rotateL`  7)
-          y14 =  x14 `xor` ((x10 +  x6) `rotateL`  7)
-          y3  =  x3  `xor` ((x15 + x11) `rotateL`  7)
-          y8  =  x8  `xor` (( y4 +  x0) `rotateL`  9)
-          y13 =  x13 `xor` (( y9 +  x5) `rotateL`  9)
-          y2  =  x2  `xor` ((y14 + x10) `rotateL`  9)
-          y7  =  x7  `xor` (( y3 + x15) `rotateL`  9)
-          y12 =  x12 `xor` (( y8 +  y4) `rotateL` 13)
-          y1  =  x1  `xor` ((y13 +  y9) `rotateL` 13)
-          y6  =  x6  `xor` (( y2 + y14) `rotateL` 13)
-          y11 =  x11 `xor` (( y7 +  y3) `rotateL` 13)
-          y0  =  x0  `xor` ((y12 +  y8) `rotateL` 18)
-          y5  =  x5  `xor` (( y1 + y13) `rotateL` 18)
-          y10 =  x10 `xor` (( y6 +  y2) `rotateL` 18)
-          y15 =  x15 `xor` ((y11 +  y7) `rotateL` 18)
-
-          z1  =  y1  `xor` (( y0 +  y3) `rotateL`  7)
-          z6  =  y6  `xor` (( y5 +  y4) `rotateL`  7)
-          z11 =  y11 `xor` ((y10 +  y9) `rotateL`  7)
-          z12 =  y12 `xor` ((y15 + y14) `rotateL`  7)
-          z2  =  y2  `xor` (( z1 +  y0) `rotateL`  9)
-          z7  =  y7  `xor` (( z6 +  y5) `rotateL`  9)
-          z8  =  y8  `xor` ((z11 + y10) `rotateL`  9)
-          z13 =  y13 `xor` ((z12 + y15) `rotateL`  9)
-          z3  =  y3  `xor` (( z2 +  z1) `rotateL` 13)
-          z4  =  y4  `xor` (( z7 +  z6) `rotateL` 13)
-          z9  =  y9  `xor` (( z8 + z11) `rotateL` 13)
-          z14 =  y14 `xor` ((z13 + z12) `rotateL` 13)
-          z0  =  y0  `xor` (( z3 +  z2) `rotateL` 18)
-          z5  =  y5  `xor` (( z4 +  z7) `rotateL` 18)
-          z10 =  y10 `xor` (( z9 +  z8) `rotateL` 18)
-          z15 =  y15 `xor` ((z14 + z13) `rotateL` 18)
-
-newtype RoundCount = RoundCount Int -- TO DO: do not export
-
-{-# INLINE rounds8 #-}
-rounds8 :: RoundCount
-rounds8 = RoundCount 4
-
-{-# INLINE rounds12 #-}
-rounds12 :: RoundCount
-rounds12 = RoundCount 6
-
-{-# INLINE rounds20 #-}
-rounds20 :: RoundCount
-rounds20 = RoundCount 10
-
 type Core = Block -> Block
 
 {-# INLINE salsa #-}
@@ -216,20 +160,6 @@ salsa rounds initState | (even rounds) && (rounds > 0) = go rounds initState
     where
         go 0 = statePlus initState
         go c = go (c - 2) . doubleround
-
-{-# INLINE salsa20 #-}
-salsa20 :: Core
-salsa20 = salsa 20
-
-{-# INLINE salsa' #-}
-salsa' :: RoundCount -> Core
-salsa' count initState = go count initState
-    where go (RoundCount 0) = statePlus initState
-          go (RoundCount c) = go (RoundCount $ c - 1) . doubleround'
-
-{-# INLINE salsa20' #-}
-salsa20' :: Core
-salsa20' = salsa' rounds20
 
 {-# INLINE expandSigma #-}
 expandSigma :: Core -> Quarter -> Quarter -> Quarter -> Quarter -> Block
@@ -248,7 +178,7 @@ newtype Key128 = Key128 Quarter deriving ( Show, Eq )
 
 instance Storable Key128 where
     {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOfQuarter
+    sizeOf _ = sizeOf (undefined :: Quarter)
 
     {-# INLINE alignment #-}
     alignment _ = alignment (undefined :: Quarter)
@@ -260,7 +190,7 @@ instance Storable Key128 where
     poke ptr (Key128 k0) = poke (castPtr ptr) k0
 
 type Expand key = key -> Quarter -> Block
-    
+
 {-# INLINE expand128 #-}
 expand128 :: Core -> Expand Key128
 expand128 core (Key128 k0) = expandSigma core (Quarter 0x61707865 0x3120646e 0x79622d36 0x6b206574) k0 k0
@@ -271,19 +201,26 @@ data Key256 = Key256 {-# UNPACK #-} !Quarter
 
 instance Storable Key256 where
     {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOfQuarter * 2
+    sizeOf _ = sizeOf (undefined :: Quarter) * 2
 
     {-# INLINE alignment #-}
     alignment _ = alignment (undefined :: Quarter)
 
     {-# INLINE peek #-}
-    peek ptr = liftM2 Key256 (peek $ castPtr ptr)
-                             (peek $ ptr `plusPtr` sizeOfQuarter)
+    peek ptr =
+        liftM2 Key256 (peekElemOff ptr' 0)
+                      (peekElemOff ptr' 1)
+        where
+            ptr' = castPtr ptr
 
     {-# INLINE poke #-}
-    poke ptr (Key256 k0 k1) = do poke (castPtr ptr) k0
-                                 poke (ptr `plusPtr` sizeOfQuarter) k1
+    poke ptr (Key256 k0 k1) = do 
+        pokeElemOff ptr' 0 k0
+        pokeElemOff ptr' 1 k1
+        where
+            ptr' = castPtr ptr
 
+-- to do: использовать класс типов 
 {-# INLINE expand256 #-}
 expand256 :: Core -> Expand Key256
 expand256 core (Key256 k0 k1) = expandSigma core (Quarter 0x61707865 0x3320646e 0x79622d32 0x6b206574) k0 k1
@@ -294,18 +231,24 @@ data Nounce = Nounce {-# UNPACK #-} !Word32
 
 instance Storable Nounce where
     {-# INLINE sizeOf #-}
-    sizeOf _ = sizeOfWord32 * 2
+    sizeOf _ = sizeOf (undefined :: Word32) * 2
 
     {-# INLINE alignment #-}
     alignment _ = alignment (undefined :: Word32)
 
     {-# INLINE peek #-}
-    peek ptr = liftM2 Nounce (peek $ castPtr ptr)
-                             (peek $ ptr `plusPtr` sizeOfWord32)
+    peek ptr =
+        liftM2 Nounce (peekElemOff ptr' 0)
+                      (peekElemOff ptr' 1)
+        where
+            ptr' = castPtr ptr
 
     {-# INLINE poke #-}
-    poke ptr (Nounce x0 x1) = do poke (castPtr ptr) x0
-                                 poke (ptr `plusPtr` sizeOfWord32) x1
+    poke ptr (Nounce x0 x1) = do
+        pokeElemOff ptr' 0 x0
+        pokeElemOff ptr' 1 x1
+        where
+            ptr' = castPtr ptr
 
 newtype SeqNum = SeqNum Word64 deriving ( Show, Eq )
 
