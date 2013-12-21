@@ -3,7 +3,8 @@ module Tests where
 import           Control.Monad
 import           Crypto.Cipher.Salsa20                as S
 import           Data.Bits
-import           Data.ByteString                      as BS hiding (map)
+import           Data.ByteString                      as BS hiding (map, putStrLn, putStr)
+import           Data.ByteString.Internal   hiding ( PS )
 import           Data.Char
 import           Data.Maybe
 import           ECrypt
@@ -11,7 +12,10 @@ import           Test.Framework                       as F
 import           Test.Framework.Providers.HUnit
 import           Test.Framework.Providers.QuickCheck2
 import           Test.HUnit                           as U
-import           Test.QuickCheck.Arbitrary
+import           Test.QuickCheck
+import Test.QuickCheck.Monadic as QM (assert, monadicIO, pick, run  ) 
+import Foreign.Ptr
+import Foreign.ForeignPtr
 
 instance Arbitrary Quarter where
     arbitrary = liftM4 Quarter arbitrary arbitrary arbitrary arbitrary
@@ -142,6 +146,14 @@ main = defaultMain
         , "readBinary . writeBinary == id (Quarter)" `testProperty` \s -> s `asTypeOf` (undefined :: S.Quarter) == (fst $ fromJust $ readBinary $ writeBinary s)
         , "readBinary/writeBinary on shorter string" `testProperty` \s -> (Nothing :: Maybe (S.Block, ByteString)) == (readBinary $ BS.tail $ writeBinary (s `asTypeOf` (undefined :: S.Block)))
         ]
-    , eCrypt128
-    , eCrypt256
+    , testProperty "createUptoNAligned" $ monadicIO $ do
+        size <- pick $ choose (0, 2 ^ 20)
+        newSize <- pick $ choose (0, size)
+        multiple <- pick $ choose (0, 2 ^ 16)
+        (bs, p) <- run  $ createUptoNAligned size multiple $ \p -> return (newSize, p)
+        let (fp, o, l) = toForeignPtr bs
+        QM.assert $ l == newSize
+        QM.assert $ alignPtr p multiple == p
+        res <- run $ withForeignPtr fp $ \pt -> return $ pt `plusPtr` o == p
+        QM.assert $ res == True 
     ]

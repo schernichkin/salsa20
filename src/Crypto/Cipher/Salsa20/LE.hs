@@ -1,12 +1,15 @@
 module Crypto.Cipher.Salsa20.LE where
 
+import           Control.Exception
 import           Control.Monad
 import           Data.Bits
-import           Data.ByteString.Internal
+import           Data.ByteString          as BS (length)
+import           Data.ByteString.Internal hiding ( PS )
 import           Data.Word
 import           Foreign.ForeignPtr
 import           Foreign.Ptr
 import           Foreign.Storable
+import           System.IO.Unsafe
 
 data Quarter = Quarter {-# UNPACK #-} !Word32
                        {-# UNPACK #-} !Word32
@@ -39,9 +42,13 @@ instance Storable Quarter where
         where
             ptr' = castPtr ptr
 
-{-# INLINE quarterPlus #-}
-quarterPlus :: Quarter -> Quarter -> Quarter
-quarterPlus (Quarter x0 x1 x2 x3) (Quarter y0 y1 y2 y3) = Quarter (x0 + y0) (x1 + y1) (x2 + y2) (x3 + y3)
+{-# INLINE plusQuarter #-}
+plusQuarter :: Quarter -> Quarter -> Quarter
+plusQuarter (Quarter x0 x1 x2 x3) (Quarter y0 y1 y2 y3) = Quarter (x0 + y0) (x1 + y1) (x2 + y2) (x3 + y3)
+
+{-# INLINE xorQuarter #-}
+xorQuarter :: Quarter -> Quarter -> Quarter
+xorQuarter (Quarter x0 x1 x2 x3) (Quarter y0 y1 y2 y3) = Quarter (x0 `xor` y0) (x1 `xor` y1) (x2 `xor` y2) (x3 `xor` y3)
 
 {-# INLINE quarterround #-}
 quarterround :: Quarter -> Quarter
@@ -87,7 +94,7 @@ instance Storable Block where
             ptr' = castPtr ptr
 
     {-# INLINE poke #-}
-    poke ptr (Block x0 x1 x2 x3) = do 
+    poke ptr (Block x0 x1 x2 x3) = do
         pokeElemOff ptr' 0 x0
         pokeElemOff ptr' 1 x1
         pokeElemOff ptr' 2 x2
@@ -95,9 +102,13 @@ instance Storable Block where
         where
             ptr' = castPtr ptr
 
-{-# INLINE statePlus #-}
-statePlus :: Block -> Block -> Block
-statePlus (Block x0 x1 x2 x3) (Block y0 y1 y2 y3) = Block (x0 `quarterPlus` y0) (x1 `quarterPlus` y1) (x2 `quarterPlus` y2) (x3 `quarterPlus` y3)
+{-# INLINE plusState #-}
+plusState :: Block -> Block -> Block
+plusState (Block x0 x1 x2 x3) (Block y0 y1 y2 y3) = Block (x0 `plusQuarter` y0) (x1 `plusQuarter` y1) (x2 `plusQuarter` y2) (x3 `plusQuarter` y3)
+
+{-# INLINE xorState #-}
+xorState :: Block -> Block -> Block
+xorState (Block x0 x1 x2 x3) (Block y0 y1 y2 y3) = Block (x0 `xorQuarter` y0) (x1 `xorQuarter` y1) (x2 `xorQuarter` y2) (x3 `xorQuarter` y3)
 
 {-# INLINE rowround #-}
 rowround :: Block -> Block
@@ -136,9 +147,9 @@ type Core = Block -> Block
 {-# INLINE salsa #-}
 salsa :: Int -> Core
 salsa rounds initState | (even rounds) && (rounds > 0) = go rounds initState
-                       | otherwise = error "Round count shoul be positive even number."
+                       | otherwise = error "Round count should be positive even integer."
     where
-        go 0 = statePlus initState
+        go 0 = plusState initState
         go c = go (c - 2) . doubleround
 
 class Key a where
@@ -234,21 +245,72 @@ data Keystream = Keystream {-# UNPACK #-} !Block
                                            Keystream
                  deriving ( Show, Eq )
 
+{-# SPECIALIZE INLINE keystream :: Core -> Key128 -> Nounce -> Word64 -> Keystream #-}
+{-# SPECIALIZE INLINE keystream :: Core -> Key256 -> Nounce -> Word64 -> Keystream #-}
 keystream :: (Key key) => Core -> key -> Nounce -> Word64 -> Keystream
 keystream core key (Nounce n0 n1) = go
-    where go i = Keystream (expand' i) $ go (i + 1)
-          expand' i = expand core key $ Quarter n0 n1 (fromIntegral i) (fromIntegral $ i `unsafeShiftR` 32)
+    where
+        go i = Keystream (expand' i) $ go (i + 1)
+        expand' i = expand core key $ Quarter n0 n1 (fromIntegral i) (fromIntegral $ i `unsafeShiftR` 32)
 
+newtype CryptProcess = CryptProcess (ByteString -> (ByteString, CryptProcess))
+
+{-# SPECIALIZE INLINE crypt :: Core -> Key128 -> Nounce -> Word64 -> CryptProcess #-}
+{-# SPECIALIZE INLINE crypt :: Core -> Key256 -> Nounce -> Word64 -> CryptProcess #-}
+crypt :: (Key key) => Core -> key -> Nounce -> Word64 -> CryptProcess
+crypt core key nounce seqNum = start $ keystream core key nounce seqNum
+    where
+        start :: Keystream -> CryptProcess
+        start = CryptProcess . cryptStream
+
+        cryptStream :: Keystream -> ByteString -> (ByteString, CryptProcess)
+        cryptStream keyStream dataStream
+            | dataLength == 0 = (dataStream, start keyStream)
+            | otherwise = unsafeDupablePerformIO $ withForeignPtr fp $ \ptr -> cryptData (ptr `plusPtr` offset) dataLength keyStream
+            where (fp, offset, dataLength) = toForeignPtr dataStream
+
+        cryptData :: Ptr Word8 -> Int -> Keystream -> IO (ByteString, CryptProcess)
+        cryptData sourcePtr sourceLength (Keystream keyBlock keyStream) = createUptoNAligned (sourceLength + 2 * (sizeOf keyBlock) - reminder) undefined $ cryptBlock fullBlocks 
+            where
+                cryptBlock = undefined
+                (fullBlocks, reminder) = sourceLength `divMod` sizeOf keyBlock
+
+        xorSourceAligned :: Ptr Word8 -> Ptr Word8 -> Block -> IO ()
+        xorSourceAligned dst src block = peek (castPtr src) >>= poke (castPtr dst) . xorState block
+
+        xorSourceUnaligned :: Ptr Word8 -> Ptr Word8 -> Int -> Block ->IO ()
+        xorSourceUnaligned dst src size block = memcpy dst src (fromIntegral size) >> xorSourceAligned dst dst block
+
+        roundUp :: Int -> Int -> Int
+        roundUp value 0 = 0
+        roundUp value multiple
+            | remainder == 0 = value
+            | otherwise = value + multiple - remainder
+            where remainder = value `rem` multiple
+
+{-# INLINE createUptoNAligned #-}
+createUptoNAligned :: Int -> Int -> (Ptr Word8 -> IO (Int, a)) -> IO (ByteString, a)
+createUptoNAligned length multiple f = do
+    fp <- mallocByteString (length + multiple)
+    (length', offset, res) <- withForeignPtr fp $ \p -> do
+        let basePtr = ptrToWordPtr p
+            mulPtr  = fromIntegral multiple
+            offset  = mulPtr - (basePtr `rem` mulPtr)
+        (length', res) <- f $ wordPtrToPtr (basePtr + offset)
+        return (length', fromIntegral offset, res)
+    assert (length' + offset <= length + multiple) $ return (fromForeignPtr fp offset length', res)
+
+-- TODO: check alignment
 {-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Quarter, ByteString) #-}
 {-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Block, ByteString) #-}
 {-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key128, ByteString) #-}
 {-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key256, ByteString) #-}
 {-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Nounce, ByteString) #-}
 readBinary :: (Storable a) => ByteString -> Maybe (a, ByteString)
-readBinary bs | l < size = Nothing
-              | otherwise = Just (value, fromForeignPtr p (s + size) (l - size))
-    where (p, s, l) = toForeignPtr bs
-          value = inlinePerformIO $ withForeignPtr p $ peek . castPtr
+readBinary bs | length < size = Nothing
+              | otherwise = Just (value, fromForeignPtr fp (offset + size) (length - size))
+    where (fp, offset, length) = toForeignPtr bs
+          value = inlinePerformIO $ withForeignPtr fp $ \p -> peek $ p `plusPtr` offset
           size = sizeOf value
 
 {-# SPECIALIZE INLINE writeBinary :: Quarter -> ByteString #-}
@@ -257,4 +319,6 @@ readBinary bs | l < size = Nothing
 {-# SPECIALIZE INLINE writeBinary :: Key256 -> ByteString #-}
 {-# SPECIALIZE INLINE writeBinary :: Nounce -> ByteString #-}
 writeBinary :: (Storable a) => a -> ByteString
-writeBinary s = unsafeCreate (sizeOf s) $ \p -> poke (castPtr p) s
+writeBinary value = fst $ unsafeDupablePerformIO $ createUptoNAligned size (alignment value) $ \p -> poke (castPtr p) value >> return (size, ())
+    where 
+        size = sizeOf value
