@@ -259,39 +259,33 @@ newtype CryptProcess = CryptProcess (ByteString -> (ByteString, CryptProcess))
 {-# SPECIALIZE INLINE crypt :: Core -> Key128 -> Nounce -> Word64 -> CryptProcess #-}
 {-# SPECIALIZE INLINE crypt :: Core -> Key256 -> Nounce -> Word64 -> CryptProcess #-}
 crypt :: (Key key) => Core -> key -> Nounce -> Word64 -> CryptProcess
-crypt core key nounce seqNum = start $ keystream core key nounce seqNum
+crypt core key nounce seqNum = CryptProcess $ startCrypt $ keystream core key nounce seqNum
     where
-        start :: Keystream -> CryptProcess
-        start = CryptProcess . cryptStream
-
-        cryptStream :: Keystream -> ByteString -> (ByteString, CryptProcess)
-        cryptStream keyStream dataStream
-            | dataLength == 0 = (dataStream, start keyStream)
-            | otherwise = unsafeDupablePerformIO $ withForeignPtr fp $ \ptr -> cryptData (ptr `plusPtr` offset) dataLength keyStream
-            where (fp, offset, dataLength) = toForeignPtr dataStream
-
-        cryptData :: Ptr Word8 -> Int -> Keystream -> IO (ByteString, CryptProcess)
-        cryptData sourcePtr sourceLength (Keystream keyBlock keyStream) = undefined -- createUptoNAligned (sourceLength + 2 * (sizeOf keyBlock) - reminder) undefined $ cryptBlock fullBlocks
+        startCrypt :: Keystream -> ByteString -> (ByteString, CryptProcess)
+        startCrypt keyStream dataStream
+            | dataLength == 0 = (dataStream, CryptProcess $ startCrypt keyStream)
+            | otherwise = unsafeDupablePerformIO $ withForeignPtr fp $ \ptr -> cryptPtr (ptr `plusPtr` dataOffset)
             where
-                cryptBlock = undefined
-                (fullBlocks, reminder) = sourceLength `divMod` sizeOf keyBlock
+                (fp, dataOffset, dataLength) = toForeignPtr dataStream
+                cryptPtr = undefined
+        
+        blockXor :: Ptr Block -> Ptr Block -> Block -> IO ()
+        blockXor dst src block = poke dst . xorState block =<< peek src
 
-        xorSourceAligned :: Ptr Word8 -> Ptr Word8 -> Block -> IO ()
-        xorSourceAligned dst src block = peek (castPtr src) >>= poke (castPtr dst) . xorState block
+        byteXor :: Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> Int -> IO ()
+        byteXor _ _ _ 0 = return ()
+        byteXor dst src key n = do
+            x <- peek src
+            y <- peek key
+            poke dst (x `xor` y)
+            byteXor (dst `plusPtr` 1) (src `plusPtr` 1) (key `plusPtr` 1) (n - 1)
 
-        xorSourceUnaligned :: Ptr Word8 -> Ptr Word8 -> Int -> Block ->IO ()
-        xorSourceUnaligned dst src size block = memcpy dst src (fromIntegral size) >> xorSourceAligned dst dst block
-
-        roundUp :: Int -> Int -> Int
-        roundUp value 0 = 0
-        roundUp value multiple
-            | remainder == 0 = value
-            | otherwise = value + multiple - remainder
-            where remainder = value `rem` multiple
-
-{-# INLINE alignOffset #-}
-alignOffset :: Ptr a -> Int -> Int
-alignOffset p alignment = (fromIntegral $ ptrToIntPtr p) `rem` alignment
+{-# INLINE alignValue #-}
+alignValue :: Int -> Int -> Ptr a -> (Ptr a -> IO b) -> IO b
+alignValue size align ptr f
+    | aligned = f ptr
+    | otherwise = allocaBytesAligned size align f
+    where aligned = ptr `alignPtr` align == ptr
 
 {-# SPECIALIZE INLINE readBinary :: ByteString -> (Quarter, ByteString) #-}
 {-# SPECIALIZE INLINE readBinary :: ByteString -> (Block, ByteString) #-}
@@ -304,15 +298,10 @@ readBinary bs = assert (length <= size) $ (value, fromForeignPtr fp (offset + si
     where
         (fp, offset, length) = toForeignPtr bs
         size = sizeOf value
-        value = unsafeDupablePerformIO $ withForeignPtr fp $ readValue
         align = alignment value
-        readValue p
-            | aligned = peek valuePtr
-            | otherwise = alloca $ \bufferPtr -> do
-                copyBytes bufferPtr valuePtr size
-                peek bufferPtr
-            where valuePtr = p `plusPtr` offset
-                  aligned = alignOffset valuePtr align == 0
+        value = unsafeDupablePerformIO
+              $ withForeignPtr fp
+              $ \p -> alignValue size align (p `plusPtr` offset) peek
 
 {-# SPECIALIZE INLINE writeBinary :: Quarter -> ByteString #-}
 {-# SPECIALIZE INLINE writeBinary :: Block -> ByteString #-}
