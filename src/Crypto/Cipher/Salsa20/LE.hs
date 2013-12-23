@@ -289,13 +289,6 @@ crypt core key nounce seqNum = start $ keystream core key nounce seqNum
             | otherwise = value + multiple - remainder
             where remainder = value `rem` multiple
 
-{-# INLINE createUptoN #-}
-createUptoN :: Int -> (Ptr Word8 -> IO (Int, Int, a)) -> IO (ByteString, a)
-createUptoN length init = do
-    fp <- mallocByteString length
-    (offset', length', res) <- withForeignPtr fp init
-    assert (offset' + length' <= length) $ return (fromForeignPtr fp offset' length', res)
-
 {-# INLINE alignOffset #-}
 alignOffset :: Ptr a -> Int -> Int
 alignOffset p alignment = (fromIntegral $ ptrToIntPtr p) `rem` alignment
@@ -318,10 +311,7 @@ readBinary bs = assert (length <= size) $ (value, fromForeignPtr fp (offset + si
 
 {-# INLINE writeBinary #-}
 writeBinary :: (Storable a) => a -> ByteString
-writeBinary value = fst $ unsafeDupablePerformIO $ createUptoN (size + aling) $ \p -> do
-        let offset = alignOffset p aling
-        poke (p `plusPtr` offset) value
-        return (offset, size, ())
-    where
-        aling = alignment value
-        size = sizeOf value
+writeBinary value = unsafeDupablePerformIO $ do
+    fp <- mallocForeignPtr
+    withForeignPtr fp $ \p -> poke p value
+    return $ fromForeignPtr (castForeignPtr fp) 0 (sizeOf value)
