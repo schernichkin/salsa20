@@ -293,7 +293,12 @@ crypt core key nounce seqNum = start $ keystream core key nounce seqNum
 alignOffset :: Ptr a -> Int -> Int
 alignOffset p alignment = (fromIntegral $ ptrToIntPtr p) `rem` alignment
 
-{-# INLINE readBinary #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> (Quarter, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> (Block, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> (Key128, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> (Key256, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> (Nounce, ByteString) #-}
+{-# SPECIALIZE INLINE readBinary :: ByteString -> (Word64, ByteString) #-}
 readBinary :: (Storable a) => ByteString -> (a, ByteString)
 readBinary bs = assert (length <= size) $ (value, fromForeignPtr fp (offset + size) (length - size))
     where
@@ -309,7 +314,12 @@ readBinary bs = assert (length <= size) $ (value, fromForeignPtr fp (offset + si
             where valuePtr = p `plusPtr` offset
                   aligned = alignOffset valuePtr align == 0
 
-{-# INLINE writeBinary #-}
+{-# SPECIALIZE INLINE writeBinary :: Quarter -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Block -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Key128 -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Key256 -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Nounce -> ByteString #-}
+{-# SPECIALIZE INLINE writeBinary :: Word64 -> ByteString #-}
 writeBinary :: (Storable a) => a -> ByteString
 writeBinary value = unsafeDupablePerformIO $ do
     fp <- mallocForeignPtr
