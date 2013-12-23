@@ -21,7 +21,7 @@ main = defaultMain
         , bench "columnround" $ whnf columnround testState
         , bench "doubleround" $ whnf doubleround testState
         , bench "salsa20" $ whnf (salsa 20) testState
-        , bench "readBinary" $ whnf (readBinary :: ByteString -> Maybe (Block, ByteString)) testStateSerialized
+        , bench "readBinary" $ whnf (readBinary :: ByteString -> (Block, ByteString)) testStateSerialized
         , bench "writeBinary" $ whnf writeBinary testState
         ]
     ]

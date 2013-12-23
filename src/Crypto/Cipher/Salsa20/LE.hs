@@ -4,9 +4,11 @@ import           Control.Exception
 import           Control.Monad
 import           Data.Bits
 import           Data.ByteString          as BS (length)
-import           Data.ByteString.Internal hiding ( PS )
+import           Data.ByteString.Internal hiding (PS)
 import           Data.Word
 import           Foreign.ForeignPtr
+import           Foreign.Marshal.Alloc
+import           Foreign.Marshal.Utils
 import           Foreign.Ptr
 import           Foreign.Storable
 import           System.IO.Unsafe
@@ -146,8 +148,7 @@ type Core = Block -> Block
 
 {-# INLINE salsa #-}
 salsa :: Int -> Core
-salsa rounds initState | (even rounds) && (rounds > 0) = go rounds initState
-                       | otherwise = error "Round count should be positive even integer."
+salsa rounds initState = assert ((even rounds) && (rounds > 0)) $ go rounds initState
     where
         go 0 = plusState initState
         go c = go (c - 2) . doubleround
@@ -270,7 +271,7 @@ crypt core key nounce seqNum = start $ keystream core key nounce seqNum
             where (fp, offset, dataLength) = toForeignPtr dataStream
 
         cryptData :: Ptr Word8 -> Int -> Keystream -> IO (ByteString, CryptProcess)
-        cryptData sourcePtr sourceLength (Keystream keyBlock keyStream) = createUptoNAligned (sourceLength + 2 * (sizeOf keyBlock) - reminder) undefined $ cryptBlock fullBlocks 
+        cryptData sourcePtr sourceLength (Keystream keyBlock keyStream) = undefined -- createUptoNAligned (sourceLength + 2 * (sizeOf keyBlock) - reminder) undefined $ cryptBlock fullBlocks
             where
                 cryptBlock = undefined
                 (fullBlocks, reminder) = sourceLength `divMod` sizeOf keyBlock
@@ -288,37 +289,39 @@ crypt core key nounce seqNum = start $ keystream core key nounce seqNum
             | otherwise = value + multiple - remainder
             where remainder = value `rem` multiple
 
-{-# INLINE createUptoNAligned #-}
-createUptoNAligned :: Int -> Int -> (Ptr Word8 -> IO (Int, a)) -> IO (ByteString, a)
-createUptoNAligned length multiple f = do
-    fp <- mallocByteString (length + multiple)
-    (length', offset, res) <- withForeignPtr fp $ \p -> do
-        let basePtr = ptrToWordPtr p
-            mulPtr  = fromIntegral multiple
-            offset  = mulPtr - (basePtr `rem` mulPtr)
-        (length', res) <- f $ wordPtrToPtr (basePtr + offset)
-        return (length', fromIntegral offset, res)
-    assert (length' + offset <= length + multiple) $ return (fromForeignPtr fp offset length', res)
+{-# INLINE createUptoN #-}
+createUptoN :: Int -> (Ptr Word8 -> IO (Int, Int, a)) -> IO (ByteString, a)
+createUptoN length init = do
+    fp <- mallocByteString length
+    (offset', length', res) <- withForeignPtr fp init
+    assert (offset' + length' <= length) $ return (fromForeignPtr fp offset' length', res)
 
--- TODO: check alignment
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Quarter, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Block, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key128, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Key256, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> Maybe (Nounce, ByteString) #-}
-readBinary :: (Storable a) => ByteString -> Maybe (a, ByteString)
-readBinary bs | length < size = Nothing
-              | otherwise = Just (value, fromForeignPtr fp (offset + size) (length - size))
-    where (fp, offset, length) = toForeignPtr bs
-          value = inlinePerformIO $ withForeignPtr fp $ \p -> peek $ p `plusPtr` offset
-          size = sizeOf value
+{-# INLINE alignOffset #-}
+alignOffset :: Ptr a -> Int -> Int
+alignOffset p alignment = (fromIntegral $ ptrToIntPtr p) `rem` alignment
 
-{-# SPECIALIZE INLINE writeBinary :: Quarter -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Block -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Key128 -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Key256 -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Nounce -> ByteString #-}
+{-# INLINE readBinary #-}
+readBinary :: (Storable a) => ByteString -> (a, ByteString)
+readBinary bs = assert (length <= size) $ (value, fromForeignPtr fp (offset + size) (length - size))
+    where
+        (fp, offset, length) = toForeignPtr bs
+        size = sizeOf value
+        value = unsafeDupablePerformIO $ withForeignPtr fp $ readValue
+        align = alignment value
+        readValue p
+            | aligned = peek valuePtr
+            | otherwise = alloca $ \bufferPtr -> do
+                copyBytes bufferPtr valuePtr size
+                peek bufferPtr
+            where valuePtr = p `plusPtr` offset
+                  aligned = alignOffset valuePtr align == 0
+
+{-# INLINE writeBinary #-}
 writeBinary :: (Storable a) => a -> ByteString
-writeBinary value = fst $ unsafeDupablePerformIO $ createUptoNAligned size (alignment value) $ \p -> poke (castPtr p) value >> return (size, ())
-    where 
+writeBinary value = fst $ unsafeDupablePerformIO $ createUptoN (size + aling) $ \p -> do
+        let offset = alignOffset p aling
+        poke (p `plusPtr` offset) value
+        return (offset, size, ())
+    where
+        aling = alignment value
         size = sizeOf value

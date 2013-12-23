@@ -13,7 +13,7 @@ import           Test.Framework.Providers.HUnit
 import           Test.HUnit                     as U
 
 readHex :: (Storable a) => String -> a
-readHex = fst . fromJust . readBinary . hexToByteString
+readHex = fst . readBinary . hexToByteString
 
 hexToByteString :: String -> BS.ByteString
 hexToByteString = BS.unfoldr convert
