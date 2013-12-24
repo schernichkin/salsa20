@@ -6,6 +6,7 @@ import           Data.ByteString
 import           Crypto.Cipher.Salsa20.LE1 as LE1
 import           Foreign.Marshal.Alloc
 import System.IO.Unsafe
+import           Foreign.Storable
 
 testState :: Block
 testState = Block (Quarter 0x08521bd6 0x1fe88837 0xbb2aa576 0x3aa26365)
@@ -37,6 +38,6 @@ main = defaultMain
                                                                               testSeqNum
                                                  in fst $ c d) (testData64)
         , bench "salsa 1000000 (LE)" $ whnf (LE.salsa 1000000) testState
-        , bench "salsa 1000000 (LE1)"  $ whnf (\_ -> unsafeDupablePerformIO $ allocaBytes 64 $ \buffer -> LE1.salsa 1000000 buffer) ()
+        , bench "salsa 1000000 (LE1)"  $ whnf (\_ -> unsafeDupablePerformIO $ allocaBytes 64 $ \buffer -> LE1.salsa 1000000 buffer >> peekElemOff buffer 0) ()
         ]
     ]

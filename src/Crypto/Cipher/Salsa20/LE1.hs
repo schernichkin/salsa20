@@ -73,10 +73,18 @@ doubleRound = do
 salsa :: Int -> Ptr Word32 -> IO ()
 salsa rounds ptr = assert ((even rounds) && (rounds > 0)) $ allocaBytes 64 $ \buffer -> do
     copyBytes buffer ptr 64
-    runShuffle doubleRound buffer
-    add ptr buffer 64
-    where 
-        add dst src i
+    go buffer (rounds `unsafeShiftR` 1)
+    compose ptr buffer 64
+    where
+        go :: Ptr Word32 -> Int -> IO ()
+        go buffer round
+            | round == 0 = return ()
+            | otherwise = do
+                runShuffle doubleRound buffer
+                go buffer (round - 1)
+
+        compose :: Ptr Word32 -> Ptr Word32 -> Int -> IO ()
+        compose dst src i
             | i == 0    = return ()
             | otherwise = do
                 x <- peekElemOff dst i
