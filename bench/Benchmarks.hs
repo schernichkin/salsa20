@@ -2,7 +2,6 @@ module Benchmarks where
 
 import           Criterion.Main
 import           Crypto.Cipher.Salsa20     as LE
-import           Crypto.Cipher.Salsa20.LE1 as LE1
 import           Data.ByteString           as BS
 import           Data.Word
 import           Foreign.Marshal.Alloc

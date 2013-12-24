@@ -102,7 +102,7 @@ instance Storable Block where
         pokeElemOff ptr' 3 x3
         where
             ptr' = castPtr ptr
-
+            
 {-# INLINE plusState #-}
 plusState :: Block -> Block -> Block
 plusState (Block x0 x1 x2 x3) (Block y0 y1 y2 y3) = Block (x0 `plusQuarter` y0) (x1 `plusQuarter` y1) (x2 `plusQuarter` y2) (x3 `plusQuarter` y3)
@@ -147,10 +147,10 @@ type Core = Block -> Block
 
 {-# INLINE salsa #-}
 salsa :: Int -> Core
-salsa rounds initState = assert ((even rounds) && (rounds > 0)) $ go rounds initState
+salsa rounds initState = assert ((even rounds) && (rounds > 0)) $ go (rounds `unsafeShiftR` 1) initState
     where
         go 0 state     = state `plusState` initState
-        go round state = go (round - 2) $! doubleround state
+        go round state = go (round - 1) $! doubleround state
 
 class Key a where
     expand :: Core -> a -> Quarter -> Block
@@ -245,8 +245,8 @@ data Keystream = Keystream {-# UNPACK #-} !Block
                                            Keystream
                  deriving ( Show, Eq )
 
-{-# SPECIALIZE INLINE keystream :: Core -> Key128 -> Nounce -> Word64 -> Keystream #-}
-{-# SPECIALIZE INLINE keystream :: Core -> Key256 -> Nounce -> Word64 -> Keystream #-}
+{-# SPECIALISE INLINE keystream :: Core -> Key128 -> Nounce -> Word64 -> Keystream #-}
+{-# SPECIALISE INLINE keystream :: Core -> Key256 -> Nounce -> Word64 -> Keystream #-}
 keystream :: (Key key) => Core -> key -> Nounce -> Word64 -> Keystream
 keystream core key (Nounce n0 n1) = go
     where
@@ -255,66 +255,43 @@ keystream core key (Nounce n0 n1) = go
 
 newtype CryptProcess = CryptProcess (ByteString -> (ByteString, CryptProcess))
 
-{-# SPECIALIZE INLINE crypt :: Core -> Key128 -> Nounce -> Word64 -> CryptProcess #-}
-{-# SPECIALIZE INLINE crypt :: Core -> Key256 -> Nounce -> Word64 -> CryptProcess #-}
 crypt :: (Key key) => Core -> key -> Nounce -> Word64 -> CryptProcess
 crypt core key nounce seqNum = CryptProcess $ startCrypt $ keystream core key nounce seqNum
+
+{-# INLINE blockSize #-}
+blockSize :: Int
+blockSize = sizeOf (undefined :: Block)
+
+{-# INLINE startCrypt #-}
+startCrypt :: Keystream -> ByteString -> (ByteString, CryptProcess)
+startCrypt keyStream srcStream
+    | srcLength == 0 = (srcStream, CryptProcess $ startCrypt keyStream)
+    | otherwise = unsafeDupablePerformIO $ do
+                  fpDst <- mallocForeignPtrBytes srcLength
+                  (dst, src, ks) <- copySourceIfUnaligned (cryptAligned keyStream blockCount) fpDst
+                  return (fromForeignPtr (castForeignPtr fpDst) 0 srcLength, undefined)
     where
-        startCrypt :: Keystream -> ByteString -> (ByteString, CryptProcess)
-        startCrypt keyStream dataStream
-            | dataLength == 0 = (dataStream, CryptProcess $ startCrypt keyStream)
-            | otherwise = unsafeDupablePerformIO
-                        $ withForeignPtr fp
-                        $ \ptr -> alignValue dataLength blockSize (ptr `plusPtr` dataOffset)
-                        $ \srcPtr -> do
-                            dstFp <- mallocForeignPtrBytes dataLength
-                            (dstPtr', srcPtr', keyStream') <- withForeignPtr dstFp
-                                $ \dstPtr -> cryptAligned dstPtr srcPtr keyStream blockCount
-                            process <- case bytesRemains of
-                                           0 -> return $ CryptProcess $ startCrypt keyStream
-                                           n -> error $ "bytesRemains: " ++ (show n)
-                            return (fromForeignPtr (castForeignPtr dstFp) 0 dataLength, process)
-            where
-                (fp, dataOffset, dataLength) = toForeignPtr dataStream
-                (blockCount, bytesRemains) = dataLength `quotRem` blockSize -- TODO: Check performance on bitwise shiftR and .&.
+        (srcFp, srcOffset, srcLength) = toForeignPtr srcStream
+        (blockCount, bytesRemains) = srcLength `quotRem` blockSize
 
-        cryptAligned :: Ptr Block -> Ptr Block -> Keystream -> Int -> IO (Ptr Block, Ptr Block, Keystream)
-        cryptAligned dstPtr srcPtr ks@(Keystream currentKey nextKey) n
-            | n == 0 = return $ (dstPtr, srcPtr, ks)
-            | otherwise = do
-                blockXor dstPtr srcPtr currentKey
-                cryptAligned (dstPtr `plusPtr` blockSize) (srcPtr `plusPtr` blockSize) nextKey (n - 1)
+        copySourceIfUnaligned :: (Ptr Block -> Ptr Block -> IO a) -> ForeignPtr Block -> IO a
+        copySourceIfUnaligned f dstFp = withForeignPtr srcFp $ \srcBasePtr -> withForeignPtr dstFp $ \dstPtr ->
+            case srcBasePtr `plusPtr` srcOffset of
+                srcPtr | srcPtr `alignPtr` alignment (undefined :: Block) == srcPtr -> f dstPtr srcPtr
+                       | otherwise -> copyBytes dstPtr srcPtr blockSize >> f dstPtr dstPtr
 
-        cryptUnaligned = undefined
-            
-        blockSize = sizeOf (undefined :: Block)
+{-# INLINE cryptAligned #-}
+cryptAligned :: Keystream -> Int -> Ptr Block -> Ptr Block -> IO (Ptr Block, Ptr Block, Keystream)
+cryptAligned ks@(Keystream currentKey nextKey) n dstPtr srcPtr
+    | n == 0 = return $ (dstPtr, srcPtr, ks)
+    | otherwise = do
+        blockXor dstPtr srcPtr currentKey
+        cryptAligned nextKey (n - 1) (dstPtr `plusPtr` blockSize) (srcPtr `plusPtr` blockSize)
 
-        blockXor :: Ptr Block -> Ptr Block -> Block -> IO ()
-        blockXor dstPtr srcPtr keyBlock = poke dstPtr . xorState keyBlock =<< peek srcPtr
+{-# INLINE blockXor #-}
+blockXor :: Ptr Block -> Ptr Block -> Block -> IO ()
+blockXor dstPtr srcPtr keyBlock = peek srcPtr >>= poke dstPtr . xorState keyBlock
 
-        byteXor :: Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> Int -> IO ()
-        byteXor _ _ _ 0 = return ()
-        byteXor dstPtr srcPtr keyPtr n = do
-            x <- peek srcPtr
-            y <- peek keyPtr
-            poke dstPtr (x `xor` y)
-            byteXor (dstPtr `plusPtr` 1) (srcPtr `plusPtr` 1) (keyPtr `plusPtr` 1) (n - 1)
-
-{-# INLINE alignValue #-}
-alignValue :: Int -> Int -> Ptr a -> (Ptr a -> IO b) -> IO b
-alignValue size align ptr f
-    | aligned = f ptr
-    | otherwise = allocaBytesAligned size align $ \buffer -> do
-        copyBytes buffer ptr size
-        f buffer
-    where aligned = ptr `alignPtr` align == ptr
-
-{-# SPECIALIZE INLINE readBinary :: ByteString -> (Quarter, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> (Block, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> (Key128, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> (Key256, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> (Nounce, ByteString) #-}
-{-# SPECIALIZE INLINE readBinary :: ByteString -> (Word64, ByteString) #-}
 readBinary :: (Storable a) => ByteString -> (a, ByteString)
 readBinary bs = assert (stringLength <= size) $ (value, fromForeignPtr fp (offset + size) (stringLength - size))
     where
@@ -325,12 +302,15 @@ readBinary bs = assert (stringLength <= size) $ (value, fromForeignPtr fp (offse
               $ withForeignPtr fp
               $ \p -> alignValue size align (p `plusPtr` offset) peek
 
-{-# SPECIALIZE INLINE writeBinary :: Quarter -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Block -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Key128 -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Key256 -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Nounce -> ByteString #-}
-{-# SPECIALIZE INLINE writeBinary :: Word64 -> ByteString #-}
+{-# INLINE alignValue #-}
+alignValue :: Int -> Int -> Ptr a -> (Ptr a -> IO b) -> IO b
+alignValue size align ptr f
+    | aligned = f ptr
+    | otherwise = allocaBytesAligned size align $ \buffer -> do
+        copyBytes buffer ptr size
+        f buffer
+    where aligned = ptr `alignPtr` align == ptr
+
 writeBinary :: (Storable a) => a -> ByteString
 writeBinary value = unsafeDupablePerformIO $ do
     fp <- mallocForeignPtr
