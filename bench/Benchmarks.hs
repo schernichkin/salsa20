@@ -1,8 +1,11 @@
 module Benchmarks where
 
 import           Criterion.Main
-import           Crypto.Cipher.Salsa20
+import           Crypto.Cipher.Salsa20 as LE
 import           Data.ByteString
+import           Crypto.Cipher.Salsa20.LE1 as LE1
+import           Foreign.Marshal.Alloc
+import System.IO.Unsafe
 
 testState :: Block
 testState = Block (Quarter 0x08521bd6 0x1fe88837 0xbb2aa576 0x3aa26365)
@@ -28,11 +31,12 @@ main = defaultMain
         , bench "salsa20" $ whnf (salsa 20) testState
         , bench "readBinary" $ whnf (readBinary :: ByteString -> (Block, ByteString)) testStateSerialized
         , bench "writeBinary" $ whnf writeBinary testState 
-        , -} bench "crypt (256 bytes)" $ whnf (\d -> let (CryptProcess c) = crypt (salsa 20)
+        , -} bench "crypt (256 bytes)" $ whnf (\d -> let (CryptProcess c) = crypt (LE.salsa 20)
                                                                               testKey128
                                                                               testNounce
                                                                               testSeqNum
                                                  in fst $ c d) (testData64)
-        , bench "salsa 100000" $ whnf (salsa 100000) testState
+        , bench "salsa 1000000 (LE)" $ whnf (LE.salsa 1000000) testState
+        , bench "salsa 1000000 (LE1)"  $ whnf (\_ -> unsafeDupablePerformIO $ allocaBytes 64 $ \buffer -> LE1.salsa 1000000 buffer) ()
         ]
     ]
