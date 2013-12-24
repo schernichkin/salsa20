@@ -8,7 +8,6 @@ import           Data.Word
 import           Foreign.Marshal.Alloc
 import           Foreign.Storable
 import           System.IO.Unsafe
-import           Control.Monad.IO.Class
 
 testState :: Block
 testState = Block (Quarter 0x08521bd6 0x1fe88837 0xbb2aa576 0x3aa26365)

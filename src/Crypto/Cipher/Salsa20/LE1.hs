@@ -8,33 +8,9 @@ import           Foreign.Marshal.Utils
 import           Foreign.Ptr
 import           Foreign.Storable
 
-newtype Shuffle a = Shuffle { runShuffle :: Ptr Word32 -> IO a }
-
-instance Monad Shuffle where
-    {-# INLINE (>>=) #-}
-    f >>= g = Shuffle $ \ptr -> do
-                  a <- runShuffle f ptr
-                  runShuffle (g a) ptr
-
-    {-# INLINE (>>) #-}
-    f >> g = Shuffle $ \ptr -> do
-                  runShuffle f ptr
-                  runShuffle g ptr
-
-    {-# INLINE return #-}
-    return a = Shuffle $ const $ return a
-
-{-# INLINE shuffle #-}
-shuffle :: Int -> Int -> Int -> Int -> Shuffle ()
-shuffle ix ia ib shift = Shuffle $ \ptr -> do
-    x <- peekElemOff ptr ix
-    a <- peekElemOff ptr ia
-    b <- peekElemOff ptr ib
-    pokeElemOff ptr ix $ x `xor` ((a + b) `rotateL` shift)
-
 {-# INLINE doubleRound #-}
-doubleRound :: Shuffle ()
-doubleRound = do
+doubleRound :: Ptr Word32 -> IO ()
+doubleRound state = do
     shuffle  4  0 12  7
     shuffle  9  5  1  7
     shuffle 14 10  6  7
@@ -68,25 +44,37 @@ doubleRound = do
     shuffle  5  4  7 18
     shuffle 10  9  8 18
     shuffle 15 14 13 18
+    where
+        {-# INLINE shuffle #-}
+        shuffle :: Int -> Int -> Int -> Int -> IO ()
+        shuffle ix ia ib shift = do
+            x <- peekElemOff state ix
+            a <- peekElemOff state ia
+            b <- peekElemOff state ib
+            pokeElemOff state ix $ x `xor` ((a + b) `rotateL` shift)
 
 {-# INLINE salsa #-}
 salsa :: Int -> Ptr Word32 -> IO ()
 salsa rounds ptr = assert ((even rounds) && (rounds > 0)) $ allocaBytes 64 $ \buffer -> do
-    copyBytes buffer ptr 64
+    forEach buffer ptr (flip const)
     go buffer (rounds `unsafeShiftR` 1)
-    compose ptr buffer 64
+    forEach ptr buffer (+)
     where
+        {-# INLINE go #-}
         go :: Ptr Word32 -> Int -> IO ()
         go buffer i
             | i == 0 = return ()
             | otherwise = do
-                runShuffle doubleRound buffer
+                doubleRound buffer
                 go buffer (i - 1)
 
-        compose :: Ptr Word32 -> Ptr Word32 -> Int -> IO ()
-        compose dst src i
-            | i == 0    = return ()
-            | otherwise = do
-                x <- peekElemOff dst i
-                y <- peekElemOff src i
-                pokeElemOff dst i (x + y)
+        {-# INLINE forEach #-}
+        forEach :: Ptr Word32 -> Ptr Word32 -> (Word32 -> Word32 -> Word32) -> IO ()
+        forEach dst src f = do  { on 0; on 1; on 2; on 3; on 4; on 5; on 6; on 7; on 8; on 9; on 10; on 11; on 12; on 13; on 14; on 15; on 16; }
+                                where
+                                    {-# INLINE on #-}
+                                    on :: Int -> IO ()
+                                    on i = do
+                                        a <- peekElemOff dst i
+                                        b <- peekElemOff src i
+                                        pokeElemOff dst i $ f a b
