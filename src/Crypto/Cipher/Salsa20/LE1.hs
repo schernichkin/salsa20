@@ -77,11 +77,11 @@ salsa rounds ptr = assert ((even rounds) && (rounds > 0)) $ allocaBytes 64 $ \bu
     compose ptr buffer 64
     where
         go :: Ptr Word32 -> Int -> IO ()
-        go buffer round
-            | round == 0 = return ()
+        go buffer i
+            | i == 0 = return ()
             | otherwise = do
                 runShuffle doubleRound buffer
-                go buffer (round - 1)
+                go buffer (i - 1)
 
         compose :: Ptr Word32 -> Ptr Word32 -> Int -> IO ()
         compose dst src i
