@@ -166,8 +166,8 @@ main = defaultMain
         res <- run $ withForeignPtr fp $ \pt -> return $ pt `plusPtr` o == p
         QM.assert $ res == True  -}
     , testGroup "crypt"
-        [ testProperty "crypt . crypt == id (64 bytes)" $ monadicIO $ do
-            a <- pack <$> pick (vector 64)
+        [ testProperty "crypt . crypt == id (256 bytes)" $ monadicIO $ do
+            a <- pack <$> pick (vector 256)
             key <- pick arbitrary 
             nounce <- pick arbitrary
             seqN <-  pick arbitrary

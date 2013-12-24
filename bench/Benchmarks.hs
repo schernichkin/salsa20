@@ -16,7 +16,7 @@ testStateSerialized = writeBinary testState
 testKey128 = Key128 (Quarter 0xe859c100 0xea4d84b7 0x0f619bff 0xbc6e965a)
 testNounce = Nounce 0 0 
 testSeqNum = 0
-testData64 = pack [0..63]
+testData64 = pack [0..255]
 
 main :: IO ()
 main = defaultMain
@@ -28,10 +28,11 @@ main = defaultMain
         , bench "salsa20" $ whnf (salsa 20) testState
         , bench "readBinary" $ whnf (readBinary :: ByteString -> (Block, ByteString)) testStateSerialized
         , bench "writeBinary" $ whnf writeBinary testState 
-        , -} bench "crypt (64 bytes)" $ whnf (\d -> let (CryptProcess c) = crypt (salsa 20)
+        , -} bench "crypt (256 bytes)" $ whnf (\d -> let (CryptProcess c) = crypt (salsa 20)
                                                                               testKey128
                                                                               testNounce
                                                                               testSeqNum
-                                                 in c d) (testData64)
+                                                 in fst $ c d) (testData64)
+        , bench "salsa 100000" $ whnf (salsa 100000) testState
         ]
     ]

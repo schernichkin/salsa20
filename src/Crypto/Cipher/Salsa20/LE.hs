@@ -149,8 +149,8 @@ type Core = Block -> Block
 salsa :: Int -> Core
 salsa rounds initState = assert ((even rounds) && (rounds > 0)) $ go rounds initState
     where
-        go 0 = plusState initState
-        go c = go (c - 2) . doubleround
+        go 0 state     = state `plusState` initState
+        go round state = go (round - 2) $! doubleround state
 
 class Key a where
     expand :: Core -> a -> Quarter -> Block
@@ -272,7 +272,7 @@ crypt core key nounce seqNum = CryptProcess $ startCrypt $ keystream core key no
                                 $ \dstPtr -> cryptAligned dstPtr srcPtr keyStream blockCount
                             process <- case bytesRemains of
                                            0 -> return $ CryptProcess $ startCrypt keyStream
-                                           1 -> error $ "bytesRemains: " ++ (show bytesRemains)
+                                           n -> error $ "bytesRemains: " ++ (show n)
                             return (fromForeignPtr (castForeignPtr dstFp) 0 dataLength, process)
             where
                 (fp, dataOffset, dataLength) = toForeignPtr dataStream
