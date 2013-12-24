@@ -16,6 +16,7 @@ import           Test.QuickCheck
 import Test.QuickCheck.Monadic as QM (assert, monadicIO, pick, run  ) 
 import Foreign.Ptr
 import Foreign.ForeignPtr
+import Control.Applicative
 
 instance Arbitrary Quarter where
     arbitrary = liftM4 Quarter arbitrary arbitrary arbitrary arbitrary
@@ -23,6 +24,13 @@ instance Arbitrary Quarter where
 instance Arbitrary S.Block where
     arbitrary = liftM4 S.Block arbitrary arbitrary arbitrary arbitrary
 
+instance Arbitrary S.Nounce where
+    arbitrary = liftM2 S.Nounce arbitrary arbitrary
+
+instance Arbitrary S.Key128 where
+    arbitrary = liftM S.Key128 arbitrary 
+
+    
 doubleroundTestGroup :: TestName -> (S.Block -> S.Block) -> F.Test
 doubleroundTestGroup n f = testGroup n $ map (uncurry testCase)
         [ (n ++ " 1", f (S.Block (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
@@ -157,4 +165,15 @@ main = defaultMain
         QM.assert $ alignPtr p multiple == p
         res <- run $ withForeignPtr fp $ \pt -> return $ pt `plusPtr` o == p
         QM.assert $ res == True  -}
+    , testGroup "crypt"
+        [ testProperty "crypt . crypt == id (64 bytes)" $ monadicIO $ do
+            a <- pack <$> pick (vector 64)
+            key <- pick arbitrary 
+            nounce <- pick arbitrary
+            seqN <-  pick arbitrary
+            let (CryptProcess c) = crypt (salsa 20) (key `asTypeOf` (undefined :: Key128)) nounce seqN
+                (b, _) = c a
+                (d, _) = c b
+            QM.assert $ a == d
+        ]
     ]

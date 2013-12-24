@@ -3,7 +3,6 @@ module Crypto.Cipher.Salsa20.LE where
 import           Control.Exception
 import           Control.Monad
 import           Data.Bits
-import           Data.ByteString          as BS (length)
 import           Data.ByteString.Internal hiding (PS)
 import           Data.Word
 import           Foreign.ForeignPtr
@@ -264,27 +263,50 @@ crypt core key nounce seqNum = CryptProcess $ startCrypt $ keystream core key no
         startCrypt :: Keystream -> ByteString -> (ByteString, CryptProcess)
         startCrypt keyStream dataStream
             | dataLength == 0 = (dataStream, CryptProcess $ startCrypt keyStream)
-            | otherwise = unsafeDupablePerformIO $ withForeignPtr fp $ \ptr -> cryptPtr (ptr `plusPtr` dataOffset)
+            | otherwise = unsafeDupablePerformIO
+                        $ withForeignPtr fp
+                        $ \ptr -> alignValue dataLength blockSize (ptr `plusPtr` dataOffset)
+                        $ \srcPtr -> do
+                            dstFp <- mallocForeignPtrBytes dataLength
+                            (dstPtr', srcPtr', keyStream') <- withForeignPtr dstFp
+                                $ \dstPtr -> cryptAligned dstPtr srcPtr keyStream blockCount
+                            process <- case bytesRemains of
+                                           0 -> return $ CryptProcess $ startCrypt keyStream
+                                           1 -> error $ "bytesRemains: " ++ (show bytesRemains)
+                            return (fromForeignPtr (castForeignPtr dstFp) 0 dataLength, process)
             where
                 (fp, dataOffset, dataLength) = toForeignPtr dataStream
-                cryptPtr = undefined
-        
+                (blockCount, bytesRemains) = dataLength `quotRem` blockSize -- TODO: Check performance on bitwise shiftR and .&.
+
+        cryptAligned :: Ptr Block -> Ptr Block -> Keystream -> Int -> IO (Ptr Block, Ptr Block, Keystream)
+        cryptAligned dstPtr srcPtr ks@(Keystream currentKey nextKey) n
+            | n == 0 = return $ (dstPtr, srcPtr, ks)
+            | otherwise = do
+                blockXor dstPtr srcPtr currentKey
+                cryptAligned (dstPtr `plusPtr` blockSize) (srcPtr `plusPtr` blockSize) nextKey (n - 1)
+
+        cryptUnaligned = undefined
+            
+        blockSize = sizeOf (undefined :: Block)
+
         blockXor :: Ptr Block -> Ptr Block -> Block -> IO ()
-        blockXor dst src block = poke dst . xorState block =<< peek src
+        blockXor dstPtr srcPtr keyBlock = poke dstPtr . xorState keyBlock =<< peek srcPtr
 
         byteXor :: Ptr Word8 -> Ptr Word8 -> Ptr Word8 -> Int -> IO ()
         byteXor _ _ _ 0 = return ()
-        byteXor dst src key n = do
-            x <- peek src
-            y <- peek key
-            poke dst (x `xor` y)
-            byteXor (dst `plusPtr` 1) (src `plusPtr` 1) (key `plusPtr` 1) (n - 1)
+        byteXor dstPtr srcPtr keyPtr n = do
+            x <- peek srcPtr
+            y <- peek keyPtr
+            poke dstPtr (x `xor` y)
+            byteXor (dstPtr `plusPtr` 1) (srcPtr `plusPtr` 1) (keyPtr `plusPtr` 1) (n - 1)
 
 {-# INLINE alignValue #-}
 alignValue :: Int -> Int -> Ptr a -> (Ptr a -> IO b) -> IO b
 alignValue size align ptr f
     | aligned = f ptr
-    | otherwise = allocaBytesAligned size align f
+    | otherwise = allocaBytesAligned size align $ \buffer -> do
+        copyBytes buffer ptr size
+        f buffer
     where aligned = ptr `alignPtr` align == ptr
 
 {-# SPECIALIZE INLINE readBinary :: ByteString -> (Quarter, ByteString) #-}
@@ -294,9 +316,9 @@ alignValue size align ptr f
 {-# SPECIALIZE INLINE readBinary :: ByteString -> (Nounce, ByteString) #-}
 {-# SPECIALIZE INLINE readBinary :: ByteString -> (Word64, ByteString) #-}
 readBinary :: (Storable a) => ByteString -> (a, ByteString)
-readBinary bs = assert (length <= size) $ (value, fromForeignPtr fp (offset + size) (length - size))
+readBinary bs = assert (stringLength <= size) $ (value, fromForeignPtr fp (offset + size) (stringLength - size))
     where
-        (fp, offset, length) = toForeignPtr bs
+        (fp, offset, stringLength) = toForeignPtr bs
         size = sizeOf value
         align = alignment value
         value = unsafeDupablePerformIO
