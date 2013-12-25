@@ -15,7 +15,6 @@ Library
     Hs-Source-Dirs: src
     Exposed-Modules: Crypto.Cipher.Salsa20
                    , Crypto.Cipher.Salsa20.LE
-                   , Crypto.Cipher.Salsa20.LE1
     Build-Depends: base
                  , bytestring
     GHC-Options: -Wall -O2
