@@ -274,7 +274,7 @@ startCrypt keyStream srcStream
                 else cryptSubBlock keyStream' bytesRemains dstPtr srcPtr
         return (fromForeignPtr (castForeignPtr fpDst) 0 srcLength, process)
     | srcLength == 0 = (srcStream, CryptProcess $ startCrypt keyStream)
-    | srcLength < blockSize = unsafeDupablePerformIO $ do
+    | otherwise = assert (srcLength < blockSize) $ unsafeDupablePerformIO $ do
         fpDst <- mallocForeignPtrBytes srcLength
         process <- withForeignPtr fpDst $ \dstPtr -> withForeignPtr srcFp $ \srcBasePtr -> do
             cryptSubBlock keyStream srcLength dstPtr (srcBasePtr `plusPtr` srcOffset)
@@ -319,11 +319,11 @@ cryptBlocks keyStream@(Keystream key nextKey) blocks dstPtr srcPtr
 -- | Encrypt chunk smaller than block size
 {-# INLINE cryptSubBlock #-}
 cryptSubBlock :: Keystream -> Int -> Ptr Word8 -> Ptr Word8 -> IO CryptProcess
-cryptSubBlock keyStream@(Keystream currentKey nextKey) size dstPtr srcPtr = assert (size > 0 && size < blockSize) $ do
+cryptSubBlock (Keystream currentKey nextKey) size dstPtr srcPtr = assert (size > 0 && size < blockSize) $ do
     keyRemainsFp <- mallocForeignPtr
     withForeignPtr keyRemainsFp $ \keyRemainsPtr -> do
         poke keyRemainsPtr currentKey
-        bytesXor dstPtr srcPtr (castPtr keyRemainsPtr) size
+        void $ bytesXor dstPtr srcPtr (castPtr keyRemainsPtr) size
     return $ CryptProcess $ continueCrypt keyRemainsFp size nextKey
 
 -- | Encrypt chunk smaller than block size with previous key's remains.
@@ -334,13 +334,13 @@ continueCryptSubBlock keyFp keyUsed keyStream size dstPtr srcPtr = assert (size 
     case blockSize - keyUsed of
         keyRemains
             | size < keyRemains -> do
-                withForeignPtr keyFp $ \keyBasePtr -> bytesXor dstPtr srcPtr (keyBasePtr `plusPtr` keyUsed) size
+                withForeignPtr keyFp $ \keyBasePtr -> void $ bytesXor dstPtr srcPtr (keyBasePtr `plusPtr` keyUsed) size
                 return $ CryptProcess $ continueCrypt keyFp (keyRemains - size) keyStream
             | size > keyRemains -> do
                 (dstPtr', srcPtr') <- withForeignPtr keyFp $ \keyBasePtr -> bytesXor dstPtr srcPtr (keyBasePtr `plusPtr` keyUsed) keyRemains
                 cryptSubBlock keyStream (size - keyRemains) dstPtr' srcPtr'
-            | size == keyRemains -> do
-                withForeignPtr keyFp $ \keyBasePtr -> bytesXor dstPtr srcPtr (keyBasePtr `plusPtr` keyUsed) size
+            | otherwise -> assert (size == keyRemains) $ do
+                withForeignPtr keyFp $ \keyBasePtr -> void $ bytesXor dstPtr srcPtr (keyBasePtr `plusPtr` keyUsed) size
                 return $ CryptProcess $ startCrypt keyStream
 
 {-# INLINE bytesXor #-}
