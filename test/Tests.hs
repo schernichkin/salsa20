@@ -3,7 +3,8 @@ module Tests where
 import           Control.Applicative
 import           Control.Monad
 import           Crypto.Cipher.Salsa20                as S
-import  qualified         Data.ByteString                      as BS 
+import qualified Data.ByteString                      as BS
+import           Numeric
 import           Test.Framework                       as F
 import           Test.Framework.Providers.HUnit
 import           Test.Framework.Providers.QuickCheck2
@@ -11,7 +12,6 @@ import           Test.HUnit                           as U
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic              as QM (assert, monadicIO,
                                                              pick, run)
-import Numeric
 
 instance Arbitrary Quarter where
     arbitrary = liftM4 Quarter arbitrary arbitrary arbitrary arbitrary
@@ -188,7 +188,7 @@ main = defaultMain
                                                     in y : (cryptAll n xs)
                 encrypted = BS.concat $ cryptAll cryptProcess strings
                 decrypted = fst $ runCryptProcess cryptProcess encrypted
-            QM.assert $ decrypted == BS.concat strings        ]
+            QM.assert $ decrypted == BS.concat strings
         , testProperty "crypt . crypt == id (large)" $ monadicIO $ do
             stringCount <- pick $ choose (0, 4)
             stringSizes <- pick $ vectorOf stringCount $ choose (128, 4096)
@@ -203,7 +203,9 @@ main = defaultMain
                                                     in y : (cryptAll n xs)
                 encrypted = BS.concat $ cryptAll cryptProcess strings
                 decrypted = fst $ runCryptProcess cryptProcess encrypted
-            QM.assert $ decrypted == BS.concat strings        ]
+            QM.assert $ decrypted == BS.concat strings       
+        ]
+    ]
 
 byteStringToHex :: BS.ByteString -> String
 byteStringToHex = concatMap convert . BS.unpack
