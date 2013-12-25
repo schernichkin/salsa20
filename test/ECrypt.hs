@@ -6,7 +6,6 @@ import           Data.ByteString                as BS hiding (map, reverse)
 import           Data.ByteString.Lazy           as LBS hiding (map, reverse)
 import           Data.Char
 import           Data.Int
-import           Data.Maybe
 import           Foreign.Storable
 import           Test.Framework                 as F
 import           Test.Framework.Providers.HUnit
@@ -19,13 +18,13 @@ hexToByteString :: String -> BS.ByteString
 hexToByteString = BS.unfoldr convert
     where
         convert (a:b:xs) = Just $ (fromIntegral $ (digitToInt a) `shiftL` 4 + (digitToInt b), xs)
-        convert (a:_) = error "Bytestring literal length should be even."
+        convert (_:_) = error "Bytestring literal length should be even."
         convert [] = Nothing
 
 keystreamToBytestring :: Keystream -> LBS.ByteString
 keystreamToBytestring = fromChunks . go
     where
-        go (Keystream block keystream) = writeBinary block : go keystream
+        go (Keystream block keyStream) = writeBinary block : go keyStream
 
 testVector :: (Key key) => String -> Core -> key -> Nounce -> [((Int64, Int64), LBS.ByteString)] -> F.Test
 testVector name core key nounce = testGroup name . map testSection

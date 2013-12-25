@@ -1,22 +1,17 @@
 module Tests where
 
+import           Control.Applicative
 import           Control.Monad
 import           Crypto.Cipher.Salsa20                as S
-import           Data.Bits
-import           Data.ByteString                      as BS hiding (map, putStrLn, putStr)
-import           Data.ByteString.Internal   hiding ( PS )
-import           Data.Char
-import           Data.Maybe
-import           ECrypt
+import           Data.ByteString                      as BS hiding (map, putStr,
+                                                             putStrLn)
 import           Test.Framework                       as F
 import           Test.Framework.Providers.HUnit
 import           Test.Framework.Providers.QuickCheck2
 import           Test.HUnit                           as U
 import           Test.QuickCheck
-import Test.QuickCheck.Monadic as QM (assert, monadicIO, pick, run  ) 
-import Foreign.Ptr
-import Foreign.ForeignPtr
-import Control.Applicative
+import           Test.QuickCheck.Monadic              as QM (assert, monadicIO,
+                                                             pick)
 
 instance Arbitrary Quarter where
     arbitrary = liftM4 Quarter arbitrary arbitrary arbitrary arbitrary
@@ -28,9 +23,9 @@ instance Arbitrary S.Nounce where
     arbitrary = liftM2 S.Nounce arbitrary arbitrary
 
 instance Arbitrary S.Key128 where
-    arbitrary = liftM S.Key128 arbitrary 
+    arbitrary = liftM S.Key128 arbitrary
 
-    
+
 doubleroundTestGroup :: TestName -> (S.Block -> S.Block) -> F.Test
 doubleroundTestGroup n f = testGroup n $ map (uncurry testCase)
         [ (n ++ " 1", f (S.Block (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
@@ -85,16 +80,16 @@ salsa20TestGroup n f = testGroup n $ map (uncurry testCase)
 main :: IO ()
 main = defaultMain
     [ testGroup "quarterround" $ map (uncurry testCase)
-        [ ("quarterround 1", quarterround (Quarter 0x00000000 0x00000000 0x00000000 0x00000000) @=? (Quarter 0x00000000 0x00000000 0x00000000 0x00000000))
-        , ("quarterround 2", quarterround (Quarter 0x00000001 0x00000000 0x00000000 0x00000000) @=? (Quarter 0x08008145 0x00000080 0x00010200 0x20500000))
-        , ("quarterround 3", quarterround (Quarter 0x00000000 0x00000001 0x00000000 0x00000000) @=? (Quarter 0x88000100 0x00000001 0x00000200 0x00402000))
-        , ("quarterround 4", quarterround (Quarter 0x00000000 0x00000000 0x00000001 0x00000000) @=? (Quarter 0x80040000 0x00000000 0x00000001 0x00002000))
-        , ("quarterround 5", quarterround (Quarter 0x00000000 0x00000000 0x00000000 0x00000001) @=? (Quarter 0x00048044 0x00000080 0x00010000 0x20100001))
-        , ("quarterround 6", quarterround (Quarter 0xe7e8c006 0xc4f9417d 0x6479b4b2 0x68c67137) @=? (Quarter 0xe876d72b 0x9361dfd5 0xf1460244 0x948541a3))
-        , ("quarterround 7", quarterround (Quarter 0xd3917c5b 0x55f1c407 0x52a58a7a 0x8f887a3b) @=? (Quarter 0x3e2f308c 0xd90a8f36 0x6ab2a923 0x2883524c))
+        [ ("quarterround 1", quarterRound (Quarter 0x00000000 0x00000000 0x00000000 0x00000000) @=? (Quarter 0x00000000 0x00000000 0x00000000 0x00000000))
+        , ("quarterround 2", quarterRound (Quarter 0x00000001 0x00000000 0x00000000 0x00000000) @=? (Quarter 0x08008145 0x00000080 0x00010200 0x20500000))
+        , ("quarterround 3", quarterRound (Quarter 0x00000000 0x00000001 0x00000000 0x00000000) @=? (Quarter 0x88000100 0x00000001 0x00000200 0x00402000))
+        , ("quarterround 4", quarterRound (Quarter 0x00000000 0x00000000 0x00000001 0x00000000) @=? (Quarter 0x80040000 0x00000000 0x00000001 0x00002000))
+        , ("quarterround 5", quarterRound (Quarter 0x00000000 0x00000000 0x00000000 0x00000001) @=? (Quarter 0x00048044 0x00000080 0x00010000 0x20100001))
+        , ("quarterround 6", quarterRound (Quarter 0xe7e8c006 0xc4f9417d 0x6479b4b2 0x68c67137) @=? (Quarter 0xe876d72b 0x9361dfd5 0xf1460244 0x948541a3))
+        , ("quarterround 7", quarterRound (Quarter 0xd3917c5b 0x55f1c407 0x52a58a7a 0x8f887a3b) @=? (Quarter 0x3e2f308c 0xd90a8f36 0x6ab2a923 0x2883524c))
         ]
     , testGroup "rowround" $ map (uncurry testCase)
-        [ ("rowround 1", rowround (S.Block (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
+        [ ("rowround 1", rowRound (S.Block (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
                                            (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
                                            (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
                                            (Quarter 0x00000001 0x00000000 0x00000000 0x00000000))
@@ -102,7 +97,7 @@ main = defaultMain
                                            (Quarter 0x20100001 0x00048044 0x00000080 0x00010000)
                                            (Quarter 0x00000001 0x00002000 0x80040000 0x00000000)
                                            (Quarter 0x00000001 0x00000200 0x00402000 0x88000100)))
-        , ("rowround 2", rowround (S.Block (Quarter 0x08521bd6 0x1fe88837 0xbb2aa576 0x3aa26365)
+        , ("rowround 2", rowRound (S.Block (Quarter 0x08521bd6 0x1fe88837 0xbb2aa576 0x3aa26365)
                                            (Quarter 0xc54c6a5b 0x2fc74c2f 0x6dd39cc3 0xda0a64f6)
                                            (Quarter 0x90a2f23d 0x067f95a6 0x06b35f61 0x41e4732e)
                                            (Quarter 0xe859c100 0xea4d84b7 0x0f619bff 0xbc6e965a))
@@ -112,7 +107,7 @@ main = defaultMain
                                            (Quarter 0x0040ede5 0xb545fbce 0xd257ed4f 0x1818882d)))
         ]
     , testGroup "columnround" $ map (uncurry testCase)
-        [ ("columnround 1", columnround (S.Block (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
+        [ ("columnround 1", columnRound (S.Block (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
                                                  (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
                                                  (Quarter 0x00000001 0x00000000 0x00000000 0x00000000)
                                                  (Quarter 0x00000001 0x00000000 0x00000000 0x00000000))
@@ -120,7 +115,7 @@ main = defaultMain
                                                  (Quarter 0x00000101 0x00000000 0x00000000 0x00000000)
                                                  (Quarter 0x00020401 0x00000000 0x00000000 0x00000000)
                                                  (Quarter 0x40a04001 0x00000000 0x00000000 0x00000000)))
-        , ("columnround 2", columnround (S.Block (Quarter 0x08521bd6 0x1fe88837 0xbb2aa576 0x3aa26365)
+        , ("columnround 2", columnRound (S.Block (Quarter 0x08521bd6 0x1fe88837 0xbb2aa576 0x3aa26365)
                                                  (Quarter 0xc54c6a5b 0x2fc74c2f 0x6dd39cc3 0xda0a64f6)
                                                  (Quarter 0x90a2f23d 0x067f95a6 0x06b35f61 0x41e4732e)
                                                  (Quarter 0xe859c100 0xea4d84b7 0x0f619bff 0xbc6e965a))
@@ -129,7 +124,7 @@ main = defaultMain
                                                  (Quarter 0x789b010c 0xd195a681 0xeb7d5504 0xa774135c)
                                                  (Quarter 0x481c2027 0x53a8e4b5 0x4c1f89c5 0x3f78c9c8)))
         ]
-    , doubleroundTestGroup "doubleround" doubleround
+    , doubleroundTestGroup "doubleround" doubleRound
     , salsa20TestGroup "salsa20" (salsa 20)
     , testGroup "expand" $ map (uncurry testCase)
         [ ("expand 128", expand (salsa 20)
@@ -152,35 +147,32 @@ main = defaultMain
     , testGroup "read/write byte string"
         [ "readBinary . writeBinary == id (Block)" `testProperty` \s -> s `asTypeOf` (undefined :: S.Block) == (fst $ readBinary $ writeBinary s)
         , "readBinary . writeBinary == id (Quarter)" `testProperty` \s -> s `asTypeOf` (undefined :: S.Quarter) == (fst $  readBinary $ writeBinary s)
-        -- , "readBinary/writeBinary on shorter string" `testProperty` \s -> (Nothing :: Maybe (S.Block, ByteString)) == (readBinary $ BS.tail $ writeBinary (s `asTypeOf` (undefined :: S.Block)))
         ]
-        {-
-    , testProperty "createUptoNAligned" $ monadicIO $ do
-        size <- pick $ choose (0, 2 ^ 20)
-        newSize <- pick $ choose (0, size)
-        multiple <- pick $ choose (0, 2 ^ 20)
-        (bs, p) <- run  $ createUptoNAligned size multiple $ \p -> return (newSize, p)
-        let (fp, o, l) = toForeignPtr bs
-        QM.assert $ l == newSize
-        QM.assert $ alignPtr p multiple == p
-        res <- run $ withForeignPtr fp $ \pt -> return $ pt `plusPtr` o == p
-        QM.assert $ res == True  -}
     , testGroup "crypt"
         [ testProperty "crypt . crypt == id (single stream up to 1000 bytes)" $ monadicIO $ do
             size <- pick $ choose (0, 1000)
             a <- pack <$> pick (vector size)
-            key <- pick arbitrary 
+            key <- pick arbitrary
             nounce <- pick arbitrary
             seqN <-  pick arbitrary
             let (CryptProcess c) = crypt (salsa 20) (key `asTypeOf` (undefined :: Key128)) nounce seqN
                 (b, _) = c a
                 (d, _) = c b
             QM.assert $ a == d
-        ,  testProperty "crypt . crypt == id (up to 10 streams up to 100 bytes each split encode merge decode)" $ monadicIO $ do
-           streamCount <- pick $ choose (0, 10::Int)
-           QM.assert $ error "not implementer"
-        ,  testProperty "crypt . crypt == id (up to 10 streams up to 100 bytes each merge encode split decode)" $ monadicIO $ do
-           streamCount <- pick $ choose (0, 10::Int)
-           QM.assert $ error "not implementer"
+        , testProperty "crypt . crypt == id (up to 10 streams up to 100 bytes each)" $ monadicIO $ do
+            stringCount <- pick $ choose (0, 10)
+            stringSizes <- pick $ vectorOf stringCount $ choose (0, 100)
+            strings <- mapM (\size -> pack <$> pick (vector size)) stringSizes
+            key <- pick arbitrary
+            nounce <- pick arbitrary
+            seqN <- pick arbitrary
+            let cryptProcess =  crypt (salsa 20) (key `asTypeOf` (undefined :: Key128)) nounce seqN
+                cryptAll = \cp list -> case list of
+                                          [] -> []
+                                          (x:xs) -> let (y, n) = runCryptProcess cp x
+                                                    in y : (cryptAll n xs)
+                encrypted = BS.concat $ cryptAll cryptProcess strings
+                decrypted = fst $ runCryptProcess cryptProcess encrypted
+            QM.assert $ decrypted == BS.concat strings
         ]
     ]
