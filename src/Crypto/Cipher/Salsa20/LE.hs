@@ -265,52 +265,66 @@ blockSize = sizeOf (undefined :: Block)
 {-# INLINE startCrypt #-}
 startCrypt :: Keystream -> ByteString -> (ByteString, CryptProcess)
 startCrypt keyStream srcStream
-    | srcLength >= blockSize = unsafeDupablePerformIO $ do
-        fpDst <- mallocForeignPtrBytes srcLength
-        process <- withForeignPtr fpDst $ \ptrDst -> do
-            (dstPtr, srcPtr, keyStream') <- copySourceIfUnaligned ptrDst (cryptBlocks keyStream blockCount)
-            if bytesRemains == 0
-                then return $ CryptProcess $ startCrypt keyStream'
-                else cryptSubBlock keyStream' bytesRemains dstPtr srcPtr
-        return (fromForeignPtr (castForeignPtr fpDst) 0 srcLength, process)
+    | srcLength >= blockSize = cryptBytestring $ \dstPtr srcPtr -> do
+        alignedSrcPtr <- copySourceIfUnaligned dstPtr srcPtr srcLength
+        (dstPtr', srcPtr', keyStream') <- cryptBlocks keyStream blockCount dstPtr alignedSrcPtr
+        if bytesRemains == 0
+            then return $ CryptProcess $ startCrypt keyStream'
+            else cryptSubBlock keyStream' bytesRemains (castPtr dstPtr') (castPtr srcPtr')
     | srcLength == 0 = (srcStream, CryptProcess $ startCrypt keyStream)
-    | otherwise = assert (srcLength < blockSize) $ unsafeDupablePerformIO $ do
-        fpDst <- mallocForeignPtrBytes srcLength
-        process <- withForeignPtr fpDst $ \dstPtr -> withForeignPtr srcFp $ \srcBasePtr -> do
-            cryptSubBlock keyStream srcLength dstPtr (srcBasePtr `plusPtr` srcOffset)
-        return (fromForeignPtr (castForeignPtr fpDst) 0 srcLength, process)
+    | otherwise = assert (srcLength < blockSize) $ cryptBytestring $ cryptSubBlock keyStream srcLength
     where
         (srcFp, srcOffset, srcLength) = toForeignPtr srcStream
         (blockCount, bytesRemains) = srcLength `quotRem` blockSize
 
-        copySourceIfUnaligned :: Ptr Block -> (Ptr Block -> Ptr Block -> IO a) -> IO a
-        copySourceIfUnaligned dstPtr f = withForeignPtr srcFp $ \srcBasePtr ->
-            case srcBasePtr `plusPtr` srcOffset of
-                srcPtr | srcPtr `alignPtr` alignment (undefined :: Block) == srcPtr -> f dstPtr srcPtr
-                       | otherwise -> copyBytes dstPtr srcPtr blockSize >> f dstPtr dstPtr
+        {-# INLINE cryptBytestring #-}
+        cryptBytestring :: (Ptr a -> Ptr Word8 -> IO CryptProcess) -> (ByteString, CryptProcess)
+        cryptBytestring f = unsafeDupablePerformIO $ do
+            dstFp <- mallocForeignPtrBytes srcLength
+            process <- withForeignPtr dstFp $ \dstPtr ->
+                       withForeignPtr srcFp $ \srcBasePtr ->
+                       f dstPtr (srcBasePtr `plusPtr` srcOffset)
+            return (fromForeignPtr (castForeignPtr dstFp) 0 srcLength, process)
 
 {-# INLINE continueCrypt #-}
 continueCrypt :: ForeignPtr Block -> Int -> Keystream-> ByteString -> (ByteString, CryptProcess)
-continueCrypt keyFp keyUsed keyStream srcStream
+continueCrypt keyFp keyUsed keyStream srcStream -- TODO add key used assert
     | srcLength >= blockSize = unsafeDupablePerformIO $ do
-        fpDst <- mallocForeignPtrBytes (srcLength + blockSize)
-        withForeignPtr fpDst $ \dstBasePtr -> withForeignPtr srcFp $ \srcBasePtr -> withForeignPtr keyFp $ \keyBasePtr -> do
-            (dstPtr', srcPtr') <- bytesXor (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyUsed) (blockSize - keyUsed)
-            return $ error "not impl"
-        
+        dstFp <- mallocForeignPtrBytes (srcLength + blockSize)
+        process <- withForeignPtr dstFp $ \dstBasePtr ->
+                   withForeignPtr srcFp $ \srcBasePtr ->
+                   withForeignPtr keyFp $ \keyBasePtr -> do
+            (dstPtr, srcPtr) <- bytesXor (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyUsed) keyRemains
+            alignedSrcPtr <- copySourceIfUnaligned (castPtr dstPtr) srcPtr (srcLength - keyRemains)
+            (dstPtr', srcPtr', keyStream') <- cryptBlocks keyStream blockCount (castPtr dstPtr) alignedSrcPtr
+            if bytesRemains == 0
+               then return $ CryptProcess $ startCrypt keyStream'
+               else  cryptSubBlock keyStream' bytesRemains (castPtr dstPtr') (castPtr srcPtr')
+        return (fromForeignPtr (castForeignPtr dstFp) keyUsed srcLength, process)
     | srcLength  == 0 = (srcStream, CryptProcess $ continueCrypt keyFp keyUsed keyStream)
-    | srcLength < blockSize = unsafeDupablePerformIO $ do
-        fpDst <- mallocForeignPtrBytes srcLength
-        process <- withForeignPtr fpDst $ \dstPtr -> withForeignPtr srcFp $ \srcBasePtr -> do
+    | otherwise = assert (srcLength < blockSize) $ unsafeDupablePerformIO $ do
+        dstFp <- mallocForeignPtrBytes srcLength
+        process <- withForeignPtr dstFp $ \dstPtr ->
+                   withForeignPtr srcFp $ \srcBasePtr -> do
             continueCryptSubBlock keyFp keyUsed keyStream srcLength dstPtr (srcBasePtr `plusPtr` srcOffset)
-        return (fromForeignPtr (castForeignPtr fpDst) 0 srcLength, process)
+        return (fromForeignPtr (castForeignPtr dstFp) 0 srcLength, process)
     where
         (srcFp, srcOffset, srcLength) = toForeignPtr srcStream
+        keyRemains = (blockSize - keyUsed)
+        (blockCount, bytesRemains) = (srcLength - keyRemains) `quotRem` blockSize
+
+{-# INLINE copySourceIfUnaligned #-}
+copySourceIfUnaligned :: Ptr Block -> Ptr Word8 -> Int -> IO (Ptr Block)
+copySourceIfUnaligned dstPtr srcPtr size
+    | srcPtr `alignPtr` alignment (undefined :: Block) == srcPtr = return $ castPtr srcPtr
+    | otherwise = do
+        copyBytes (castPtr dstPtr) srcPtr size
+        return dstPtr
 
 {-# INLINE cryptBlocks #-}
-cryptBlocks :: Keystream -> Int -> Ptr Block -> Ptr Block -> IO (Ptr Word8, Ptr Word8, Keystream)
+cryptBlocks :: Keystream -> Int -> Ptr Block -> Ptr Block -> IO (Ptr Block, Ptr Block, Keystream)
 cryptBlocks keyStream@(Keystream key nextKey) blocks dstPtr srcPtr
-    | blocks == 0 = return $ (castPtr dstPtr, castPtr srcPtr, keyStream)
+    | blocks == 0 = return $ (dstPtr, srcPtr, keyStream)
     | otherwise = assert (blocks > 0) $ do
         block <- peek srcPtr
         poke dstPtr $ block `xorBlock` key
@@ -335,8 +349,8 @@ continueCryptSubBlock keyFp keyUsed keyStream size dstPtr srcPtr = assert (size 
         keyRemains
             | size < keyRemains -> do
                 withForeignPtr keyFp $ \keyBasePtr -> void $ bytesXor dstPtr srcPtr (keyBasePtr `plusPtr` keyUsed) size
-                return $ CryptProcess $ continueCrypt keyFp (keyRemains - size) keyStream
-            | size > keyRemains -> do
+                return $ CryptProcess $ continueCrypt keyFp (keyUsed + size) keyStream
+            | size > keyRemains ->  do
                 (dstPtr', srcPtr') <- withForeignPtr keyFp $ \keyBasePtr -> bytesXor dstPtr srcPtr (keyBasePtr `plusPtr` keyUsed) keyRemains
                 cryptSubBlock keyStream (size - keyRemains) dstPtr' srcPtr'
             | otherwise -> assert (size == keyRemains) $ do
