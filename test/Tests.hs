@@ -166,8 +166,9 @@ main = defaultMain
         res <- run $ withForeignPtr fp $ \pt -> return $ pt `plusPtr` o == p
         QM.assert $ res == True  -}
     , testGroup "crypt"
-        [ testProperty "crypt . crypt == id (256 bytes)" $ monadicIO $ do
-            a <- pack <$> pick (vector 256)
+        [ testProperty "crypt . crypt == id (single stream up to 1000 bytes)" $ monadicIO $ do
+            size <- pick $ choose (0, 1000)
+            a <- pack <$> pick (vector size)
             key <- pick arbitrary 
             nounce <- pick arbitrary
             seqN <-  pick arbitrary
@@ -175,5 +176,11 @@ main = defaultMain
                 (b, _) = c a
                 (d, _) = c b
             QM.assert $ a == d
+        ,  testProperty "crypt . crypt == id (up to 10 streams up to 100 bytes each split encode merge decode)" $ monadicIO $ do
+           streamCount <- pick $ choose (0, 10::Int)
+           QM.assert $ error "not implementer"
+        ,  testProperty "crypt . crypt == id (up to 10 streams up to 100 bytes each merge encode split decode)" $ monadicIO $ do
+           streamCount <- pick $ choose (0, 10::Int)
+           QM.assert $ error "not implementer"
         ]
     ]
