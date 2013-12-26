@@ -22,7 +22,7 @@ cryptBench rounds = bgroup ("crypt with salsa " ++ show rounds)
     where
         randomByteString :: Int -> IO ByteString
         randomByteString size = fst . BS.unfoldrN size f <$> newStdGen
-            where f gen = let (x, gen) = next gen in Just (fromIntegral x, gen)
+            where f stdGen = let (x, nextGen) = next stdGen in Just (fromIntegral x, nextGen)
 
         cryptChunk :: ByteString -> IO ByteString
         cryptChunk byteString = fst . flip runCryptProcess byteString <$> cryptProcess
