@@ -38,9 +38,6 @@ cryptBench rounds = bgroup ("crypt with salsa " ++ show rounds)
             key <- fst . fromJust . readKey256 <$> randomByteString 32
             nounce <- fst . fromJust . readNounce <$> randomByteString 8
             return $ crypt (salsa rounds) key nounce 0
-            where
-                key = fst $ fromJust $ readKey256 $ BS.replicate 32 0
-                nounce = fst $ fromJust $ readNounce $ BS.replicate 8 0
 
 main :: IO ()
 main = defaultMain
