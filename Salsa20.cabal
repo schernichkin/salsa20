@@ -42,3 +42,4 @@ Benchmark Benchmarks
                  , base
                  , criterion
                  , bytestring
+                 , random
