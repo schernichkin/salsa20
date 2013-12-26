@@ -103,6 +103,12 @@ instance Storable Block where
         where
             ptr' = castPtr ptr
 
+readBlock :: ByteString -> Maybe (Block, ByteString)
+readBlock = readBinary
+
+writeBlock :: Block -> ByteString
+writeBlock = writeBinary
+
 {-# INLINE plusBlock #-}
 plusBlock :: Block -> Block -> Block
 plusBlock (Block x0 x1 x2 x3) (Block y0 y1 y2 y3) = Block (x0 `plusQuarter` y0) (x1 `plusQuarter` y1) (x2 `plusQuarter` y2) (x3 `plusQuarter` y3)
@@ -187,6 +193,12 @@ instance Storable Key128 where
     {-# INLINE poke #-}
     poke ptr (Key128 k0) = poke (castPtr ptr) k0
 
+readKey128 :: ByteString -> Maybe (Key128, ByteString)
+readKey128 = readBinary
+
+writeKey128 :: Key128 -> ByteString
+writeKey128 = writeBinary
+
 data Key256 = Key256 {-# UNPACK #-} !Quarter
                      {-# UNPACK #-} !Quarter
               deriving ( Show, Eq )
@@ -216,6 +228,12 @@ instance Storable Key256 where
         where
             ptr' = castPtr ptr
 
+readKey256 :: ByteString -> Maybe (Key256, ByteString)
+readKey256 = readBinary
+
+writeKey256 :: Key256 -> ByteString
+writeKey256 = writeBinary
+
 data Nounce = Nounce {-# UNPACK #-} !Word32
                      {-# UNPACK #-} !Word32
               deriving ( Show, Eq )
@@ -240,6 +258,12 @@ instance Storable Nounce where
         pokeElemOff ptr' 1 x1
         where
             ptr' = castPtr ptr
+
+readNounce :: ByteString -> Maybe (Nounce, ByteString)
+readNounce = readBinary
+
+writeNounce :: Nounce -> ByteString
+writeNounce = writeBinary
 
 data Keystream = Keystream {-# UNPACK #-} !Block
                                            Keystream
@@ -367,18 +391,20 @@ bytesXor dstPtr srcPtr keyPtr count
         poke dstPtr (x `xor` k)
         bytesXor (dstPtr `plusPtr` 1) (srcPtr `plusPtr` 1) (keyPtr `plusPtr` 1) (count - 1)
 
--- TODO: remove it
-readBinary :: (Storable a) => ByteString -> (a, ByteString)
-readBinary bs = assert (stringLength <= size) $ (value, fromForeignPtr fp (offset + size) (stringLength - size))
+{-# SPECIALISE INLINE readBinary :: ByteString -> Maybe (Block, ByteString) #-}
+{-# SPECIALISE INLINE readBinary :: ByteString -> Maybe (Key128, ByteString) #-}
+{-# SPECIALISE INLINE readBinary :: ByteString -> Maybe (Key256, ByteString) #-}
+{-# SPECIALISE INLINE readBinary :: ByteString -> Maybe (Nounce, ByteString) #-}
+readBinary :: (Storable a) => ByteString -> Maybe (a, ByteString)
+readBinary byteString
+    | len >= size = Just (value, fromForeignPtr fp (offset + size) (len - size))
+    | otherwise = Nothing
     where
-        (fp, offset, stringLength) = toForeignPtr bs
+        (fp, offset, len) = toForeignPtr byteString
         size = sizeOf value
         align = alignment value
-        value = unsafeDupablePerformIO
-              $ withForeignPtr fp
-              $ \p -> alignValue size align (p `plusPtr` offset) peek
+        value = unsafeDupablePerformIO $ withForeignPtr fp $ \ptr -> alignValue size align (ptr `plusPtr` offset) peek
 
--- TODO: remove it
 {-# INLINE alignValue #-}
 alignValue :: Int -> Int -> Ptr a -> (Ptr a -> IO b) -> IO b
 alignValue size align ptr f
@@ -388,7 +414,10 @@ alignValue size align ptr f
         f buffer
     where aligned = ptr `alignPtr` align == ptr
 
--- TODO: remove it
+{-# SPECIALISE INLINE writeBinary :: Block -> ByteString #-}
+{-# SPECIALISE INLINE writeBinary :: Key128 -> ByteString #-}
+{-# SPECIALISE INLINE writeBinary :: Key256 -> ByteString #-}
+{-# SPECIALISE INLINE writeBinary :: Nounce -> ByteString #-}
 writeBinary :: (Storable a) => a -> ByteString
 writeBinary value = unsafeDupablePerformIO $ do
     fp <- mallocForeignPtr

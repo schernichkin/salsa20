@@ -10,9 +10,10 @@ import           Foreign.Storable
 import           Test.Framework                 as F
 import           Test.Framework.Providers.HUnit
 import           Test.HUnit                     as U
+import           Data.Maybe
 
 readHex :: (Storable a) => String -> a
-readHex = fst . readBinary . hexToByteString
+readHex = fst . fromJust . readBinary . hexToByteString
 
 hexToByteString :: String -> BS.ByteString
 hexToByteString = BS.unfoldr convert
