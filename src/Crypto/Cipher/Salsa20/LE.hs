@@ -269,10 +269,10 @@ data Keystream = Keystream {-# UNPACK #-} !Block
                                            Keystream
                  deriving ( Show, Eq )
 
-{-# SPECIALISE INLINE keystream :: Core -> Key128 -> Nounce -> Word64 -> Keystream #-}
-{-# SPECIALISE INLINE keystream :: Core -> Key256 -> Nounce -> Word64 -> Keystream #-}
-keystream :: (Key key) => Core -> key -> Nounce -> Word64 -> Keystream
-keystream core key (Nounce n0 n1) = go
+{-# SPECIALISE INLINE keyStream :: Core -> Key128 -> Nounce -> Word64 -> Keystream #-}
+{-# SPECIALISE INLINE keyStream :: Core -> Key256 -> Nounce -> Word64 -> Keystream #-}
+keyStream :: (Key key) => Core -> key -> Nounce -> Word64 -> Keystream
+keyStream core key (Nounce n0 n1) = go
     where
         go i = Keystream (expand' i) $ go (i + 1)
         expand' i = expand core key $ Quarter n0 n1 (fromIntegral i) (fromIntegral $ i `unsafeShiftR` 32)
@@ -280,7 +280,7 @@ keystream core key (Nounce n0 n1) = go
 newtype CryptProcess = CryptProcess { runCryptProcess :: ByteString -> (ByteString, CryptProcess) }
 
 crypt :: (Key key) => Core -> key -> Nounce -> Word64 -> CryptProcess
-crypt core key nounce seqNum = CryptProcess $ startCrypt $ keystream core key nounce seqNum
+crypt core key nounce seqNum = CryptProcess $ startCrypt $ keyStream core key nounce seqNum
 
 {-# INLINE blockSize #-}
 blockSize :: Int

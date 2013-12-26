@@ -14,7 +14,7 @@ cryptBench rounds = bgroup ("crypt with salsa " ++ show rounds)
     , bench "100 bytes chunk" $ whnfIO $ cryptChunk $ BS.replicate 100 0
     , bench "1Kb chunk" $ whnfIO $ cryptChunk $ BS.replicate 1024 0
     , bench "1Mb chunk" $ whnfIO $ cryptChunk $ BS.replicate 1048576 0
-    , bench "100Mb chunk" $ whnfIO $ cryptChunk $ BS.replicate 104857600 0
+    , bench "100Mb in one chunk" $ whnfIO $ cryptChunk $ BS.replicate 104857600 0
     , bench "100Mb in 64 bytes chunks + concat" $ whnfIO $ cryptAll $ replicate 1638400 $ BS.replicate 64 0
     , bench "100Mb in 100 bytes chunks + concat" $ whnfIO $ cryptAll $ replicate 1048576 $ BS.replicate 100 0
     , bench "100Mb in 32Kb chunks + concat" $ whnfIO $ cryptAll $ replicate 3200 $ BS.replicate 32768 0

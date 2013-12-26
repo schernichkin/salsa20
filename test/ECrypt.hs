@@ -30,7 +30,7 @@ keystreamToBytestring = fromChunks . go
 testVector :: (Key key) => String -> Core -> key -> Nounce -> [((Int64, Int64), LBS.ByteString)] -> F.Test
 testVector name core key nounce = testGroup name . map testSection
     where
-        stream = keystream core key nounce 0
+        stream = keyStream core key nounce 0
         testSection (section@(from, to), excepted) = testCase ("section " ++ show section) $ actual @=? excepted
             where
                 actual = LBS.take (to - from + 1) $ LBS.drop from $ keystreamToBytestring stream
