@@ -5,48 +5,46 @@ import           Crypto.Cipher.Salsa20
 import           Data.ByteString       (ByteString)
 import qualified Data.ByteString       as BS
 import           Data.Maybe
-
-coreBench :: Benchmark
-coreBench = bgroup "core"
-    [ bench "salsa 8" $ whnf (salsa 8) $ block
-    , bench "salsa 12" $ whnf (salsa 12) $ block
-    , bench "salsa 20" $ whnf (salsa 20) $ block
-    ]
-    where
-        block :: Block
-        block = fst $ fromJust $ readBlock $ BS.replicate 64 0
+import           System.Random
+import           Control.Applicative
 
 cryptBench :: Int -> Benchmark
 cryptBench rounds = bgroup ("crypt with salsa " ++ show rounds)
-    [ bench "10 bytes chunk" $ whnf cryptChunk $ BS.replicate 10 0
-    , bench "100 bytes chunk" $ whnf cryptChunk $ BS.replicate 100 0
-    , bench "1K bytes chunk" $ whnf cryptChunk $ BS.replicate 1024 0
-    , bench "1M bytes chunk" $ whnf cryptChunk $ BS.replicate 1048576 0
-    , bench "100M bytes chunk" $ whnf cryptChunk $ BS.replicate 104857600 0
-    , bench "100M in 64 bytes chunks + concat" $ whnf cryptAll $ replicate 1638400 $ BS.replicate 64 0
-    , bench "100M in 100 bytes chunks + concat" $ whnf cryptAll $ replicate 1048576 $ BS.replicate 100 0
-    , bench "100M in 32k bytes chunks + concat" $ whnf cryptAll $ replicate 3200 $ BS.replicate 32768 0
+    [ bench "10 bytes chunk" $ whnfIO $ cryptChunk $ BS.replicate 10 0
+    , bench "100 bytes chunk" $ whnfIO $ cryptChunk $ BS.replicate 100 0
+    , bench "1Kb chunk" $ whnfIO $ cryptChunk $ BS.replicate 1024 0
+    , bench "1Mb chunk" $ whnfIO $ cryptChunk $ BS.replicate 1048576 0
+    , bench "100Mb chunk" $ whnfIO $ cryptChunk $ BS.replicate 104857600 0
+    , bench "100Mb in 64 bytes chunks + concat" $ whnfIO $ cryptAll $ replicate 1638400 $ BS.replicate 64 0
+    , bench "100Mb in 100 bytes chunks + concat" $ whnfIO $ cryptAll $ replicate 1048576 $ BS.replicate 100 0
+    , bench "100Mb in 32Kb chunks + concat" $ whnfIO $ cryptAll $ replicate 3200 $ BS.replicate 32768 0
     ]
     where
-        cryptChunk :: ByteString -> ByteString
-        cryptChunk byteString = fst $ runCryptProcess cryptProcess byteString
+        randomByteString :: Int -> IO ByteString
+        randomByteString size = fst . BS.unfoldrN size f <$> newStdGen
+            where f gen = let (x, gen) = next gen in Just (fromIntegral x, gen)
 
-        cryptAll :: [ByteString] -> ByteString
-        cryptAll = BS.concat . go cryptProcess
+        cryptChunk :: ByteString -> IO ByteString
+        cryptChunk byteString = fst . flip runCryptProcess byteString <$> cryptProcess
+
+        cryptAll :: [ByteString] -> IO ByteString
+        cryptAll xs = BS.concat . go xs <$> cryptProcess
             where
-                go cp (x:xs) = let (bs', cp') = runCryptProcess cp x in bs' : go cp' xs
-                go _ [] = []
+                go (x:xs) cp = let (bs', cp') = runCryptProcess cp x in bs' : go xs cp'
+                go [] _ = []
 
-        cryptProcess :: CryptProcess
-        cryptProcess = (crypt (salsa rounds) key nounce 0)
+        cryptProcess :: IO CryptProcess
+        cryptProcess = do
+            key <- fst . fromJust . readKey256 <$> randomByteString 32
+            nounce <- fst . fromJust . readNounce <$> randomByteString 8
+            return $ crypt (salsa rounds) key nounce 0
             where
                 key = fst $ fromJust $ readKey256 $ BS.replicate 32 0
                 nounce = fst $ fromJust $ readNounce $ BS.replicate 8 0
 
 main :: IO ()
 main = defaultMain
-    [ coreBench
-    , cryptBench 8
+    [ cryptBench 8
     , cryptBench 12
     , cryptBench 20
     ]
