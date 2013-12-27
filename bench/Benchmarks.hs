@@ -28,7 +28,7 @@ cryptBench rounds = bgroup ("crypt with salsa " ++ show rounds)
         cryptChunk byteString = fst . flip runCryptProcess byteString <$> cryptProcess
 
         cryptAll :: [ByteString] -> IO ByteString
-        cryptAll xs = BS.concat . go xs <$> cryptProcess
+        cryptAll bs = BS.concat . go bs <$> cryptProcess
             where
                 go (x:xs) cp = let (bs', cp') = runCryptProcess cp x in bs' : go xs cp'
                 go [] _ = []

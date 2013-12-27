@@ -150,19 +150,9 @@ main = defaultMain
         , "readBinary . writeBinary == id (Quarter)" `testProperty` \s -> s `asTypeOf` (undefined :: S.Quarter) == (fst $ fromJust $ readBinary $ writeBinary s)
         ]
     , testGroup "crypt"
-        [ testProperty "crypt . crypt == id (single stream up to 500 bytes)" $ monadicIO $ do
-            size <- pick $ choose (0, 500)
-            a <- BS.pack <$> pick (vector size)
-            key <- pick arbitrary
-            nounce <- pick arbitrary
-            seqN <-  pick arbitrary
-            let (CryptProcess c) = crypt (salsa 20) (key `asTypeOf` (undefined :: Key128)) nounce seqN
-                (b, _) = c a
-                (d, _) = c b
-            QM.assert $ a == d
-        , testProperty "crypt . crypt == id" $ monadicIO $ do
-            stringCount <- pick $ choose (0, 10)
-            stringSizes <- pick $ vectorOf stringCount $ choose (0, 500)
+        [ testProperty "crypt . crypt == id (up to 50 stream up to 400 bytes each)" $ monadicIO $ do
+            stringCount <- pick $ choose (0, 50)
+            stringSizes <- pick $ vectorOf stringCount $ choose (0, 400)
             strings <- mapM (\size -> BS.pack <$> pick (vector size)) stringSizes
             key <- pick arbitrary
             nounce <- pick arbitrary
