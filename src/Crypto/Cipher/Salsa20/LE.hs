@@ -284,9 +284,10 @@ newtype CryptProcess = CryptProcess { runCryptProcess :: ByteString -> (ByteStri
 crypt :: (Key key) => Core -> key -> Nounce -> Word64 -> CryptProcess
 crypt core key nounce seqNum = CryptProcess $ startCrypt $ keyStream core key nounce seqNum
 
-data KeyRemains = KeyRemains {-# UNPACK #-} !(ForeignPtr Word8)
-                             {-# UNPACK #-} !Int
-                             {-# UNPACK #-} !Int
+-- TODO: finally replace with bytestring
+data StoredKey = StoredKey {-# UNPACK #-} !(ForeignPtr Word8) -- ^ Pointer to the base block (shared with bytestring)
+                           {-# UNPACK #-} !Int                -- ^ Offset in the base block
+                           {-# UNPACK #-} !Int                -- ^ Number of bytes already consumed (i.e size of the stored key = block size - number of bytes already consumed) TODO: replace with key size
 
 {-# INLINE startCrypt #-}
 startCrypt :: Keystream -> ByteString -> (ByteString, CryptProcess)
@@ -320,12 +321,7 @@ startCrypt keyStream src
             (dstPtr', keyStream'@(Keystream key' nextKey')) <- cryptBlocks keyStream blockCount dstPtr alignedSrcPtr
             poke dstPtr' key'
             void $ bytesXor2 (castPtr dstPtr') (srcBasePtr `plusPtr` (srcOffset + srcLength - bytesRemains)) bytesRemains
-            ---- tmp
-            keyRemainsFp <- mallocForeignPtr
-            withForeignPtr keyRemainsFp $ \keyRemainsPtr -> do
-                poke keyRemainsPtr key'
-            ---- end of tmp
-            return  $ CryptProcess $ continueCrypt keyRemainsFp bytesRemains nextKey'
+            return  $ CryptProcess $ continueCrypt (StoredKey (castForeignPtr dstFp) srcLength bytesRemains) nextKey'
         return (fromForeignPtr (castForeignPtr dstFp) 0 srcLength, process)
     -- skip empty block
     | srcLength == 0 = (src, CryptProcess $ startCrypt keyStream)
@@ -337,27 +333,22 @@ startCrypt keyStream src
             let (Keystream key nextKey) = keyStream
             poke dstBasePtr key
             void $ bytesXor2 (castPtr dstBasePtr) (srcBasePtr `plusPtr` srcOffset) srcLength
-            ---- tmp
-            keyRemainsFp <- mallocForeignPtr
-            withForeignPtr keyRemainsFp $ \keyRemainsPtr -> do
-                poke keyRemainsPtr key
-            ---- end of tmp
-            return  $ CryptProcess $ continueCrypt keyRemainsFp bytesRemains nextKey
+            return  $ CryptProcess $ continueCrypt (StoredKey (castForeignPtr dstFp) srcLength srcLength) nextKey
         return (fromForeignPtr (castForeignPtr dstFp) 0 srcLength, process)
     where
         (srcFp, srcOffset, srcLength) = toForeignPtr src
         (blockCount, bytesRemains) = srcLength `quotRem` blockSize
 
 {-# INLINE continueCrypt #-}
-continueCrypt :: ForeignPtr Block -> Int -> Keystream-> ByteString -> (ByteString, CryptProcess)
-continueCrypt keyFp keyUsed keyStream src
+continueCrypt :: StoredKey -> Keystream -> ByteString -> (ByteString, CryptProcess)
+continueCrypt a@(StoredKey keyFp keyOffset keyUsed) keyStream src
     -- use all key remains to encode chunk
     | srcLength == keyRemains = unsafeDupablePerformIO $ do
         dstFp <- mallocForeignPtrBytes srcLength
         process <- withForeignPtr dstFp $ \dstBasePtr ->
                    withForeignPtr srcFp $ \srcBasePtr ->
                    withForeignPtr keyFp $ \keyBasePtr -> do
-            bytesXor3 (castPtr dstBasePtr) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyUsed) srcLength
+            bytesXor3 (castPtr dstBasePtr) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyOffset) srcLength
             return $ CryptProcess $ startCrypt keyStream
         return (fromForeignPtr (castForeignPtr dstFp) 0 srcLength, process)
     -- use all key remains and exactly one block 
@@ -366,7 +357,7 @@ continueCrypt keyFp keyUsed keyStream src
         process <- withForeignPtr dstFp $ \dstBasePtr ->
                    withForeignPtr srcFp $ \srcBasePtr ->
                    withForeignPtr keyFp $ \keyBasePtr -> do
-            (dstPtr', srcPtr', _) <- bytesXor3 (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyUsed) keyRemains
+            (dstPtr', srcPtr', _) <- bytesXor3 (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyOffset) keyRemains
             alignedSrcPtr' <- copySourceIfUnaligned (castPtr dstPtr') srcPtr' blockSize
             block <- peek alignedSrcPtr'
             let (Keystream key nextKey) = keyStream
@@ -379,7 +370,7 @@ continueCrypt keyFp keyUsed keyStream src
         process <- withForeignPtr dstFp $ \dstBasePtr ->
                    withForeignPtr srcFp $ \srcBasePtr ->
                    withForeignPtr keyFp $ \keyBasePtr -> do
-            (dstPtr', srcPtr', _) <- bytesXor3 (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyUsed) keyRemains
+            (dstPtr', srcPtr', _) <- bytesXor3 (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyOffset) keyRemains
             alignedSrcPtr <- copySourceIfUnaligned (castPtr dstPtr') srcPtr' (srcLength - keyRemains)
             nextKey' <- snd <$> cryptBlocks keyStream blockCount (castPtr dstPtr') alignedSrcPtr
             return $ CryptProcess $ startCrypt nextKey'
@@ -390,29 +381,24 @@ continueCrypt keyFp keyUsed keyStream src
         process <- withForeignPtr dstFp $ \dstBasePtr ->
                    withForeignPtr srcFp $ \srcBasePtr ->
                    withForeignPtr keyFp $ \keyBasePtr -> do
-            (dstPtr', srcPtr', _) <- bytesXor3 (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyUsed) keyRemains
+            (dstPtr', srcPtr', _) <- bytesXor3 (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyOffset) keyRemains
             alignedSrcPtr' <- copySourceIfUnaligned (castPtr dstPtr') srcPtr' (srcLength - keyRemains - bytesRemains)
             (dstPtr'', keyStream''@(Keystream key'' nextKey'')) <- cryptBlocks keyStream blockCount (castPtr dstPtr') alignedSrcPtr'
             poke dstPtr'' key''
             void $ bytesXor2 (castPtr dstPtr'') (srcPtr' `plusPtr` (srcLength - bytesRemains - keyRemains)) bytesRemains
-            ---- tmp
-            keyRemainsFp <- mallocForeignPtr
-            withForeignPtr keyRemainsFp $ \keyRemainsPtr -> do
-                poke keyRemainsPtr key''
-            ---- end of tmp
-            return  $ CryptProcess $ continueCrypt keyRemainsFp bytesRemains nextKey''
+            return  $ CryptProcess $ continueCrypt (StoredKey (castForeignPtr dstFp) (keyUsed + srcLength) bytesRemains) nextKey''
         return (fromForeignPtr (castForeignPtr dstFp) keyUsed srcLength, process)
     -- skip empty block
-    | srcLength == 0 = (src, CryptProcess $ continueCrypt keyFp keyUsed keyStream)
+    | srcLength == 0 = (src, CryptProcess $ continueCrypt a keyStream)
     -- use some of key remains to encode the block and store remains in the new block to allow GC reclaim old block
     | srcLength < keyRemains = assert (srcLength > 0) $ unsafeDupablePerformIO $ do
         dstFp <- mallocForeignPtrBytes (srcLength + (keyRemains - srcLength))
         process <- withForeignPtr dstFp $ \dstBasePtr ->
                    withForeignPtr srcFp $ \srcBasePtr ->
                    withForeignPtr keyFp $ \keyBasePtr -> do
-            (dstPtr', srcPtr', keyPtr') <- bytesXor3 dstBasePtr (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyUsed) srcLength
+            (dstPtr', srcPtr', keyPtr') <- bytesXor3 dstBasePtr (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyOffset) srcLength
             copyBytes dstPtr' keyPtr' (keyRemains - srcLength)
-            return $ CryptProcess $ continueCrypt keyFp (keyUsed + srcLength) keyStream
+            return $ CryptProcess $ continueCrypt (StoredKey (castForeignPtr dstFp) srcLength (keyUsed + srcLength)) keyStream
         return (fromForeignPtr dstFp 0 srcLength, process)
     -- use all key remains to encode the block and part of new key to encode the rest
     | otherwise = assert (srcLength < blockSize && srcLength > keyRemains) $ unsafeDupablePerformIO $ do
@@ -420,16 +406,11 @@ continueCrypt keyFp keyUsed keyStream src
         process <- withForeignPtr dstFp $ \dstBasePtr ->
                    withForeignPtr srcFp $ \srcBasePtr ->
                    withForeignPtr keyFp $ \keyBasePtr -> do
-            (dstPtr', srcPtr', _) <- bytesXor3 (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyUsed) keyRemains
+            (dstPtr', srcPtr', _) <- bytesXor3 (dstBasePtr `plusPtr` keyUsed) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyOffset) keyRemains
             let (Keystream key nextKey) = keyStream
             poke (castPtr dstPtr') key
             void $ bytesXor2 dstPtr' srcPtr' (srcLength - keyRemains)
-            ---- tmp
-            keyRemainsFp <- mallocForeignPtr
-            withForeignPtr keyRemainsFp $ \keyRemainsPtr -> do
-                poke keyRemainsPtr key
-            ---- end of tmp
-            return  $ CryptProcess $ continueCrypt keyRemainsFp (srcLength - keyRemains) nextKey
+            return  $ CryptProcess $ continueCrypt (StoredKey (castForeignPtr dstFp) (keyUsed + srcLength) (srcLength - keyRemains)) nextKey
         return (fromForeignPtr (castForeignPtr dstFp) keyUsed srcLength, process)
     where
         (srcFp, srcOffset, srcLength) = toForeignPtr src
