@@ -288,7 +288,9 @@ crypt core key nounce seqNum = CryptProcess $ startCrypt $ keyStream core key no
 data StoredKey = StoredKey {-# UNPACK #-} !(ForeignPtr Word8) -- ^ Pointer to the base block (shared with bytestring)
                            {-# UNPACK #-} !Int                -- ^ Offset in the base block
                            {-# UNPACK #-} !Int                -- ^ Number of bytes already consumed (i.e size of the stored key = block size - number of bytes already consumed) TODO: replace with key size
+                           {-# UNPACK #-} !Int                -- ^ Key length
 
+-- TODO: использовать битовые операции вместо `quotRem` (добавить assert), уменьшить количество кейсов.
 {-# INLINE startCrypt #-}
 startCrypt :: Keystream -> ByteString -> (ByteString, CryptProcess)
 startCrypt keyStream src
@@ -321,7 +323,7 @@ startCrypt keyStream src
             (dstPtr', keyStream'@(Keystream key' nextKey')) <- cryptBlocks keyStream blockCount dstPtr alignedSrcPtr
             poke dstPtr' key'
             void $ bytesXor2 (castPtr dstPtr') (srcBasePtr `plusPtr` (srcOffset + srcLength - bytesRemains)) bytesRemains
-            return  $ CryptProcess $ continueCrypt (StoredKey (castForeignPtr dstFp) srcLength bytesRemains) nextKey'
+            return  $ CryptProcess $ continueCrypt (StoredKey (castForeignPtr dstFp) srcLength bytesRemains (blockSize - bytesRemains)) nextKey'
         return (fromForeignPtr (castForeignPtr dstFp) 0 srcLength, process)
     -- skip empty block
     | srcLength == 0 = (src, CryptProcess $ startCrypt keyStream)
@@ -333,7 +335,7 @@ startCrypt keyStream src
             let (Keystream key nextKey) = keyStream
             poke dstBasePtr key
             void $ bytesXor2 (castPtr dstBasePtr) (srcBasePtr `plusPtr` srcOffset) srcLength
-            return  $ CryptProcess $ continueCrypt (StoredKey (castForeignPtr dstFp) srcLength srcLength) nextKey
+            return  $ CryptProcess $ continueCrypt (StoredKey (castForeignPtr dstFp) srcLength srcLength (blockSize - srcLength)) nextKey
         return (fromForeignPtr (castForeignPtr dstFp) 0 srcLength, process)
     where
         (srcFp, srcOffset, srcLength) = toForeignPtr src
