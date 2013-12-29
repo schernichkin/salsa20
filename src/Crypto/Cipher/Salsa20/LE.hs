@@ -292,22 +292,23 @@ startCrypt keyStream src
 
     -- crypt less then one block and store key remains
     | srcLength < blockSize =
-        cryptChunk srcFp srcLength blockSize $ \dstBasePtr srcBasePtr -> cryptRemains dstBasePtr 0 (srcBasePtr `plusPtr` srcOffset) keyStream srcLength
+        cryptChunk srcFp srcLength blockSize $ \dstBasePtr srcBasePtr -> do
+            let srcPtr = srcBasePtr `plusPtr` srcOffset
+            cryptRemains dstBasePtr 0 srcPtr keyStream srcLength
 
     -- crypt whole number of blocks (more than one, one is handled by special case)
     | remains == 0 =
         cryptChunk srcFp srcLength srcLength $ \dstBasePtr srcBasePtr -> do
-            (nextKey, _) <- blockXor dstBasePtr (srcBasePtr `plusPtr` srcOffset) keyStream srcLength
+            let srcPtr = srcBasePtr `plusPtr` srcOffset
+            (nextKey, _) <- blockXor dstBasePtr srcPtr keyStream srcLength
             return $ const $ CryptProcess $ startCrypt nextKey
 
     -- crypt whole number of blocks + part of the key and store key remains for the next step
     | otherwise =
         cryptChunk srcFp srcLength (srcLength + blockSize - remains) $ \dstBasePtr srcBasePtr -> do
-            (Keystream key nextKey, blockBytes) <- blockXor dstBasePtr (srcBasePtr `plusPtr` srcOffset) keyStream srcLength
-            let dstPtr = dstBasePtr `plusPtr` blockBytes
-            poke dstPtr key
-            void $ bytesXor2 dstPtr (srcBasePtr `plusPtr` (srcOffset + blockBytes)) remains
-            return $ \dstFp -> CryptProcess $ continueCrypt (fromForeignPtr (castForeignPtr dstFp) srcLength (blockSize - remains)) nextKey
+            let srcPtr = srcBasePtr `plusPtr` srcOffset
+            (nextKey, encoded) <- blockXor dstBasePtr srcPtr keyStream srcLength
+            cryptRemains dstBasePtr encoded (srcPtr `plusPtr` encoded) nextKey remains
     where
         (srcFp, srcOffset, srcLength) = toForeignPtr src
         remains = assert (blockSize == 64) $ srcLength .&. 0x3F
