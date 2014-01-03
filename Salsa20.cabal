@@ -17,7 +17,7 @@ Library
                     , binary
     Exposed-Modules:  Crypto.Cipher.Salsa20
                     , Crypto.Cipher.Salsa20.LE
-    other-extensions: CPP
+    default-extensions: CPP
     Hs-Source-Dirs:   src
     GHC-Options:      -Wall -O2
 

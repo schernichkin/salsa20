@@ -7,9 +7,7 @@ import           Data.Binary
 import           Data.ByteString       (ByteString)
 import qualified Data.ByteString       as BS
 import qualified Data.ByteString.Lazy  as LS
-import           Data.Maybe
 import           System.Random
-
 
 cryptBench :: Int -> Benchmark
 cryptBench rounds = bgroup ("crypt with salsa " ++ show rounds)
