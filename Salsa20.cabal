@@ -17,6 +17,7 @@ Library
                    , Crypto.Cipher.Salsa20.LE
     Build-Depends: base
                  , bytestring
+                 , binary
     GHC-Options: -Wall -O2
 
 test-suite Tests
@@ -32,6 +33,8 @@ test-suite Tests
                  , test-framework-hunit
                  , test-framework
                  , bytestring
+                 , binary
+                 , base16-bytestring
 
 Benchmark Benchmarks
     hs-source-dirs: bench
@@ -43,3 +46,4 @@ Benchmark Benchmarks
                  , criterion
                  , bytestring
                  , random
+                 , binary

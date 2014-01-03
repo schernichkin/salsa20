@@ -3,7 +3,9 @@ module Tests where
 import           Control.Applicative
 import           Control.Monad
 import           Crypto.Cipher.Salsa20                as S
+import           Data.Binary
 import qualified Data.ByteString                      as BS
+import qualified Data.ByteString.Lazy                 as LS
 import           Numeric
 import           Test.Framework                       as F
 import           Test.Framework.Providers.HUnit
@@ -12,7 +14,6 @@ import           Test.HUnit                           as U
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic              as QM (assert, monadicIO,
                                                              pick, run)
-import Data.Maybe
 
 instance Arbitrary Quarter where
     arbitrary = liftM4 Quarter arbitrary arbitrary arbitrary arbitrary
@@ -57,22 +58,22 @@ salsa20TestGroup n f = testGroup n $ map (uncurry testCase)
                                  (Quarter 0x00000000 0x00000000 0x00000000 0x00000000)
                                  (Quarter 0x00000000 0x00000000 0x00000000 0x00000000)
                                  (Quarter 0x00000000 0x00000000 0x00000000 0x00000000)))
-        , (n ++ " 1", f (fst $ fromJust $ readBinary $ BS.pack
+        , (n ++ " 1", f (decode $ LS.pack
                              [ 211, 159, 13, 115, 76, 55, 82, 183, 3, 117, 222, 37, 191, 187, 234, 136
                              , 49,237,179, 48, 1,106,178,219,175,199,166, 48, 86, 16,179,207
                              , 31,240, 32, 63, 15, 83, 93,161,116,147, 48,113,238, 55,204, 36
                              , 79,201,235, 79, 3, 81,156, 47,203, 26,244,243, 88,118,104, 54 ])
-                    @=? (fst $ fromJust $ readBinary $ BS.pack
+                    @=? (decode $ LS.pack
                              [ 109, 42,178,168,156,240,248,238,168,196,190,203, 26,110,170,154
                              , 29, 29,150, 26,150, 30,235,249,190,163,251, 48, 69,144, 51, 57
                              , 118, 40,152,157,180, 57, 27, 94,107, 42,236, 35, 27,111,114,114
                              , 219,236,232,135,111,155,110, 18, 24,232, 95,158,179, 19, 48,202 ]))
-        , (n ++ " 2", f (fst $ fromJust $ readBinary $ BS.pack
+        , (n ++ " 2", f (decode $ LS.pack
                              [ 88,118,104, 54, 79,201,235, 79, 3, 81,156, 47,203, 26,244,243
                              , 191,187,234,136,211,159, 13,115, 76, 55, 82,183, 3,117,222, 37
                              , 86, 16,179,207, 49,237,179, 48, 1,106,178,219,175,199,166, 48
                              , 238, 55,204, 36, 31,240, 32, 63, 15, 83, 93,161,116,147, 48,113 ])
-                    @=? (fst $ fromJust $ readBinary $ BS.pack
+                    @=? (decode $ LS.pack
                              [ 179, 19, 48,202,219,236,232,135,111,155,110, 18, 24,232, 95,158
                              , 26,110,170,154,109, 42,178,168,156,240,248,238,168,196,190,203
                              , 69,144, 51, 57, 29, 29,150, 26,150, 30,235,249,190,163,251, 48
@@ -129,25 +130,25 @@ main = defaultMain
     , salsa20TestGroup "salsa20" (salsa 20)
     , testGroup "expand" $ map (uncurry testCase)
         [ ("expand 128", expand (salsa 20)
-                                  ((fst $ fromJust $ readBinary $ BS.pack [1 .. 16]) `asTypeOf` (undefined :: Key128))
-                                  (fst $ fromJust $ readBinary $ BS.pack [101 .. 116])
-                              @=? (fst $ fromJust $ readBinary $ BS.pack
+                                  ((decode $ LS.pack [1 .. 16]) `asTypeOf` (undefined :: Key128))
+                                  (decode $ LS.pack [101 .. 116])
+                              @=? (decode $ LS.pack
                                    [ 39,173, 46,248, 30,200, 82, 17, 48, 67,254,239, 37, 18, 13,247
                                    , 241,200, 61,144, 10, 55, 50,185, 6, 47,246,253,143, 86,187,225
                                    , 134, 85,110,246,161,163, 43,235,231, 94,171, 51,145,214,112, 29
                                    , 14,232, 5, 16,151,140,183,141,171, 9,122,181,104,182,177,193 ]))
         , ("expand 256", expand (salsa 20)
-                              ((fst $ fromJust $ readBinary $ BS.pack $ [1 .. 16] ++ [201 .. 216]) `asTypeOf` (undefined :: Key256))
-                              (fst $ fromJust $ readBinary $ BS.pack [101 .. 116])
-                          @=? (fst $ fromJust $ readBinary $ BS.pack
+                              ((decode $ LS.pack $ [1 .. 16] ++ [201 .. 216]) `asTypeOf` (undefined :: Key256))
+                              (decode $ LS.pack [101 .. 116])
+                          @=? (decode $ LS.pack
                                    [ 69, 37, 68, 39, 41, 15,107,193,255,139,122, 6,170,233,217, 98
                                    , 89,144,182,106, 21, 51,200, 65,239, 49,222, 34,215,114, 40,126
                                    , 104,197, 7,225,197,153, 31, 2,102, 78, 76,176, 84,245,246,184
                                    , 177,160,133,130, 6, 72,149,119,192,195,132,236,234,103,246, 74]))
         ]
     , testGroup "read/write byte string"
-        [ "readBinary . writeBinary == id (Block)" `testProperty` \s -> s `asTypeOf` (undefined :: S.Block) == (fst $ fromJust $ readBinary $ writeBinary s)
-        , "readBinary . writeBinary == id (Quarter)" `testProperty` \s -> s `asTypeOf` (undefined :: S.Quarter) == (fst $ fromJust $ readBinary $ writeBinary s)
+        [ "readBinary . writeBinary == id (Block)" `testProperty` \s -> s `asTypeOf` (undefined :: S.Block) == (decode $ encode s)
+        , "readBinary . writeBinary == id (Quarter)" `testProperty` \s -> s `asTypeOf` (undefined :: S.Quarter) == (decode $ encode s)
         ]
     , testGroup "crypt"
         [ testProperty "crypt . crypt == id (up to 50 stream up to 400 bytes each)" $ monadicIO $ do

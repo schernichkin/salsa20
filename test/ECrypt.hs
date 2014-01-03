@@ -1,39 +1,34 @@
 module ECrypt where
 
 import           Crypto.Cipher.Salsa20          as S
+import           Data.Binary                    (Binary)
+import qualified Data.Binary                    as Binary
 import           Data.Bits
 import           Data.ByteString                as BS hiding (map, reverse)
-import           Data.ByteString.Lazy           as LBS hiding (map, reverse)
+import           Data.ByteString.Base16.Lazy    as Base16
+import           Data.ByteString.Lazy.Char8     as LS hiding (map, reverse)
 import           Data.Char
 import           Data.Int
+import           Data.Maybe
 import           Foreign.Storable
 import           Test.Framework                 as F
 import           Test.Framework.Providers.HUnit
 import           Test.HUnit                     as U
-import           Data.Maybe
 
-readHex :: (Storable a) => String -> a
-readHex = fst . fromJust . readBinary . hexToByteString
+readHex :: (Binary a) => LS.ByteString -> a
+readHex = Binary.decode . fst . Base16.decode
 
-hexToByteString :: String -> BS.ByteString
-hexToByteString = BS.unfoldr convert
-    where
-        convert (a:b:xs) = Just $ (fromIntegral $ (digitToInt a) `shiftL` 4 + (digitToInt b), xs)
-        convert (_:_) = error "Bytestring literal length should be even."
-        convert [] = Nothing
+keystreamToBytestring :: KeyStream -> LS.ByteString
+keystreamToBytestring (KeyStream key nextKey) =
+    LS.append (Binary.encode key) (keystreamToBytestring nextKey)
 
-keystreamToBytestring :: Keystream -> LBS.ByteString
-keystreamToBytestring = fromChunks . go
-    where
-        go (Keystream block keyStream) = writeBinary block : go keyStream
-
-testVector :: (Key key) => String -> Core -> key -> Nounce -> [((Int64, Int64), LBS.ByteString)] -> F.Test
+testVector :: (Key key) => String -> Core -> key -> Nounce -> [((Int64, Int64), LS.ByteString)] -> F.Test
 testVector name core key nounce = testGroup name . map testSection
     where
         stream = keyStream core key nounce 0
         testSection (section@(from, to), excepted) = testCase ("section " ++ show section) $ actual @=? excepted
             where
-                actual = LBS.take (to - from + 1) $ LBS.drop from $ keystreamToBytestring stream
+                actual = LS.take (to - from + 1) $ LS.drop from $ keystreamToBytestring stream
 
 eCrypt128 :: F.Test
 eCrypt128 = testGroup "eCrypt128"
@@ -1730,8 +1725,8 @@ eCrypt128 = testGroup "eCrypt128"
                           ]
     ]
     where
-        testVector128 name key iv = testVector name (salsa 20) (readHex key `asTypeOf` (undefined :: Key128)) (readHex iv) . map (\(a, b) -> (a, fromChunks [hexToByteString b]))
-        
+        testVector128 name key iv = testVector name (salsa 20) (readHex (LS.pack key) `asTypeOf` (undefined :: Key128)) (readHex (LS.pack iv)) . map (\(a, b) -> (a, fst $ Base16.decode $ LS.pack b))
+
 eCrypt256 :: F.Test
 eCrypt256 = testGroup "eCrypt256"
     [ testVector256 "1 Set, vector#  0"  ("80000000000000000000000000000000"
@@ -3796,4 +3791,4 @@ eCrypt256 = testGroup "eCrypt256"
                           ]
     ]
     where
-        testVector256 name key iv = testVector name (salsa 20) (readHex key `asTypeOf` (undefined :: Key256)) (readHex iv) . map (\(a, b) -> (a, fromChunks [hexToByteString b]))
+        testVector256 name key iv = testVector name (salsa 20) (readHex (LS.pack key) `asTypeOf` (undefined :: Key256)) (readHex (LS.pack iv)) . map (\(a, b) -> (a, fst $ Base16.decode $ LS.pack b))
