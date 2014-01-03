@@ -8,11 +8,18 @@ import           Data.Binary.Get
 import           Data.Binary.Put
 import           Data.Bits
 import           Data.ByteString.Internal hiding (PS)
-import           Foreign.ForeignPtr
+import           Foreign.ForeignPtr       (ForeignPtr, castForeignPtr,
+                                           withForeignPtr)
 import           Foreign.Marshal.Utils
 import           Foreign.Ptr
 import           Foreign.Storable
 import           System.IO.Unsafe
+
+#if __GLASGOW_HASKELL__ >= 605 && !defined(SLOW_FOREIGN_PTR)
+import           GHC.ForeignPtr           (mallocPlainForeignPtrBytes)
+#else
+import           Foreign.ForeignPtr       (mallocForeignPtrBytes)
+#endif
 
 data Quarter = Quarter {-# UNPACK #-} !Word32
                        {-# UNPACK #-} !Word32
@@ -350,7 +357,11 @@ blockSize = sizeOf (undefined :: Block)
 {-# INLINE createChunk #-}
 createChunk :: Int -> Int -> Int -> (ForeignPtr Block -> IO CryptProcess) -> (ByteString, CryptProcess)
 createChunk size offset len f = unsafeDupablePerformIO $ do
+#if __GLASGOW_HASKELL__ >= 605 && !defined(SLOW_FOREIGN_PTR)
+    dstFp <- mallocPlainForeignPtrBytes size
+#else
     dstFp <- mallocForeignPtrBytes size
+#endif
     process <- f dstFp
     return (fromForeignPtr (castForeignPtr dstFp) offset len, process)
 
