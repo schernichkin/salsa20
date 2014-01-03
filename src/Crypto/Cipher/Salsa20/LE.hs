@@ -8,9 +8,7 @@ import           Data.Binary.Get
 import           Data.Binary.Put
 import           Data.Bits
 import           Data.ByteString.Internal hiding (PS)
-import           Data.Word
 import           Foreign.ForeignPtr
-import           Foreign.Marshal.Alloc
 import           Foreign.Marshal.Utils
 import           Foreign.Ptr
 import           Foreign.Storable
@@ -46,6 +44,17 @@ instance Storable Quarter where
         pokeElemOff ptr' 3 x3
         where
             ptr' = castPtr ptr
+
+instance Binary Quarter where
+    {-# INLINE get #-}
+    get = liftM4 Quarter getWord32host getWord32host getWord32host getWord32host
+
+    {-# INLINE put #-}
+    put (Quarter x0 x1 x2 x3) = do
+        putWord32host x0
+        putWord32host x1
+        putWord32host x2
+        putWord32host x3
 
 {-# INLINE plusQuarter #-}
 plusQuarter :: Quarter -> Quarter -> Quarter
@@ -106,6 +115,17 @@ instance Storable Block where
         pokeElemOff ptr' 3 x3
         where
             ptr' = castPtr ptr
+
+instance Binary Block where
+    {-# INLINE get #-}
+    get = liftM4 Block get get get get
+
+    {-# INLINE put #-}
+    put (Block x0 x1 x2 x3) = do
+        put x0
+        put x1
+        put x2
+        put x3
 
 {-# INLINE plusBlock #-}
 plusBlock :: Block -> Block -> Block
@@ -178,6 +198,13 @@ instance Key Key128 where
     {-# INLINE expand #-}
     expand core (Key128 k0) = expandSigma core (Quarter 0x61707865 0x3120646e 0x79622d36 0x6b206574) k0 k0
 
+instance Binary Key128 where
+    {-# INLINE get #-}
+    get = liftM Key128 get
+
+    {-# INLINE put #-}
+    put (Key128 quarter) = put quarter
+
 data Key256 = Key256 {-# UNPACK #-} !Quarter
                      {-# UNPACK #-} !Quarter
               deriving ( Show, Eq )
@@ -186,9 +213,27 @@ instance Key Key256 where
     {-# INLINE expand #-}
     expand core (Key256 k0 k1) = expandSigma core (Quarter 0x61707865 0x3320646e 0x79622d32 0x6b206574) k0 k1
 
+instance Binary Key256 where
+    {-# INLINE get #-}
+    get = liftM2 Key256 get get
+
+    {-# INLINE put #-}
+    put (Key256 x0 x1) = do
+        put x0
+        put x1
+
 data Nounce = Nounce {-# UNPACK #-} !Word32
                      {-# UNPACK #-} !Word32
               deriving ( Show, Eq )
+
+instance Binary Nounce where
+    {-# INLINE get #-}
+    get = liftM2 Nounce get get
+
+    {-# INLINE put #-}
+    put (Nounce x0 x1) = do
+        put x0
+        put x1
 
 data KeyStream = KeyStream {-# UNPACK #-} !Block
                                            KeyStream
@@ -209,26 +254,26 @@ crypt core key nounce seqNum = CryptProcess $ startCrypt $ keyStream core key no
 
 {-# INLINE startCrypt #-}
 startCrypt :: KeyStream -> ByteString -> (ByteString, CryptProcess)
-startCrypt keyStream src
+startCrypt key src
     -- skip empty block
-    | srcLen == 0 = (src, CryptProcess $ startCrypt keyStream)
+    | srcLen == 0 = (src, CryptProcess $ startCrypt key)
 
     -- crypt less then one block and store key remains
     | srcLen < blockSize =
         cryptChunk blockSize $ \dstPtr srcPtr -> do
-            nextKey <- remainsXor dstPtr srcPtr keyStream srcLen
+            nextKey <- remainsXor dstPtr srcPtr key srcLen
             continueCryptProcess srcLen (blockSize - srcLen) nextKey
 
     -- crypt whole number of blocks (more than one, one is handled by special case)
     | remains == 0 =
         cryptChunk srcLen $ \dstPtr srcPtr -> do
-            nextKey <- fst <$> blockXor dstPtr srcPtr keyStream srcLen
+            nextKey <- fst <$> blockXor dstPtr srcPtr key srcLen
             newCryptProcess nextKey
 
     -- crypt whole number of blocks + part of the key and store key remains for the next step
     | otherwise =
         cryptChunk (srcLen + blockSize - remains) $ \dstPtr srcPtr -> do
-            (nextKey, encoded) <- blockXor dstPtr srcPtr keyStream srcLen
+            (nextKey, encoded) <- blockXor dstPtr srcPtr key srcLen
             nextKey' <- remainsXor (dstPtr `plusPtr` encoded) (srcPtr `plusPtr` encoded) nextKey remains
             continueCryptProcess srcLen (blockSize - remains) nextKey'
     where
@@ -237,50 +282,50 @@ startCrypt keyStream src
 
         {-# INLINE cryptChunk #-}
         cryptChunk :: Int -> (Ptr Block -> Ptr Word8 ->  IO (ForeignPtr Block -> CryptProcess)) -> (ByteString, CryptProcess)
-        cryptChunk size init = createChunk size 0 srcLen $ \dstFp -> do
+        cryptChunk size f = createChunk size 0 srcLen $ \dstFp -> do
             cont <- withForeignPtr dstFp $ \dstBasePtr ->
                     withForeignPtr srcFp $ \srcBasePtr ->
-                    init dstBasePtr (srcBasePtr `plusPtr` srcOffset)
+                    f dstBasePtr (srcBasePtr `plusPtr` srcOffset)
             return $ cont dstFp
 
 {-# INLINE continueCrypt #-}
 continueCrypt :: ByteString -> KeyStream -> ByteString -> (ByteString, CryptProcess)
-continueCrypt storedKey keyStream  src
+continueCrypt storedKey key  src
     -- skip empty block
-    | srcLen == 0 = (src, CryptProcess $ continueCrypt storedKey keyStream)
+    | srcLen == 0 = (src, CryptProcess $ continueCrypt storedKey key)
 
     -- use some of key remains to encode the block and store remains in the new block to allow GC reclaim old block
     | srcLen < keyLen =
         cryptChunk keyLen 0 $ \dstPtr srcPtr keyPtr -> do
-            (dstPtr', srcPtr', keyPtr') <- bytesXor3 (castPtr dstPtr) srcPtr keyPtr srcLen
+            (dstPtr', _, keyPtr') <- bytesXor3 (castPtr dstPtr) srcPtr keyPtr srcLen
             copyBytes dstPtr' keyPtr' (keyLen - srcLen)
-            continueCryptProcess srcLen (keyLen - srcLen) keyStream
+            continueCryptProcess srcLen (keyLen - srcLen) key
 
     -- use all key remains to encode chunk
     | srcLen == keyLen =
         cryptChunk srcLen 0 $ \dstPtr srcPtr keyPtr -> do
             void $ bytesXor3 (castPtr dstPtr) srcPtr keyPtr srcLen
-            newCryptProcess keyStream
+            newCryptProcess key
 
     -- use all key remains to encode the block and part of a new key to encode the rest
     | srcLen < blockSize = assert (srcLen > keyLen) $
         cryptChunk (blockSize + blockSize) keyUsed $ \dstPtr srcPtr keyPtr -> do
             (dstPtr', srcPtr', _) <- bytesXor3 (castPtr dstPtr) srcPtr keyPtr keyLen
-            nextKey <- remainsXor (castPtr dstPtr') srcPtr' keyStream remains
+            nextKey <- remainsXor (castPtr dstPtr') srcPtr' key remains
             continueCryptProcess (srcLen + keyUsed) (blockSize - remains) nextKey
 
     -- use all key remains + some whole key blocks
     | remains == 0 = assert (srcLen >= blockSize) $
         cryptChunk (srcLen + blockSize) keyUsed $ \dstPtr srcPtr keyPtr -> do
             (dstPtr', srcPtr', _) <- bytesXor3 (castPtr dstPtr) srcPtr keyPtr keyLen
-            nextKey <- fst <$> blockXor (castPtr dstPtr') srcPtr' keyStream (srcLen - keyLen)
+            nextKey <- fst <$> blockXor (castPtr dstPtr') srcPtr' key (srcLen - keyLen)
             newCryptProcess nextKey
 
     -- use all key remains + some whole key blocks + part of the key and store key remains for the next step
     |  otherwise = assert (remains > 0 && srcLen >= blockSize) $
         cryptChunk (srcLen + blockSize + blockSize) keyUsed $ \dstPtr srcPtr keyPtr -> do
             (dstPtr', srcPtr', _) <- bytesXor3 (castPtr dstPtr) srcPtr keyPtr keyLen
-            (nextKey, encoded) <- blockXor (castPtr dstPtr') srcPtr' keyStream (srcLen - keyLen - remains)
+            (nextKey, encoded) <- blockXor (castPtr dstPtr') srcPtr' key (srcLen - keyLen - remains)
             nextKey' <- remainsXor (dstPtr' `plusPtr` encoded) (srcPtr' `plusPtr` encoded) nextKey remains
             continueCryptProcess (srcLen + keyUsed) (blockSize - remains) nextKey'
     where
@@ -291,11 +336,11 @@ continueCrypt storedKey keyStream  src
 
         {-# INLINE cryptChunk #-}
         cryptChunk :: Int -> Int -> (Ptr Block -> Ptr Word8 -> Ptr Word8 -> IO (ForeignPtr Block -> CryptProcess)) -> (ByteString, CryptProcess)
-        cryptChunk size offset init = createChunk size offset srcLen $ \dstFp -> do
+        cryptChunk size offset f = createChunk size offset srcLen $ \dstFp -> do
             cont <- withForeignPtr dstFp $ \dstBasePtr ->
                     withForeignPtr srcFp $ \srcBasePtr ->
                     withForeignPtr keyFp $ \keyBasePtr ->
-                    init (dstBasePtr `plusPtr` offset) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyOffset)
+                    f (dstBasePtr `plusPtr` offset) (srcBasePtr `plusPtr` srcOffset) (keyBasePtr `plusPtr` keyOffset)
             return $ cont dstFp
 
 {-# INLINE blockSize #-}
@@ -304,32 +349,32 @@ blockSize = sizeOf (undefined :: Block)
 
 {-# INLINE createChunk #-}
 createChunk :: Int -> Int -> Int -> (ForeignPtr Block -> IO CryptProcess) -> (ByteString, CryptProcess)
-createChunk size offset length init = unsafeDupablePerformIO $ do
+createChunk size offset len f = unsafeDupablePerformIO $ do
     dstFp <- mallocForeignPtrBytes size
-    process <- init dstFp
-    return (fromForeignPtr (castForeignPtr dstFp) offset length, process)
+    process <- f dstFp
+    return (fromForeignPtr (castForeignPtr dstFp) offset len, process)
 
 {-# INLINE newCryptProcess #-}
 newCryptProcess :: KeyStream -> IO (ForeignPtr Block -> CryptProcess)
-newCryptProcess keyStream = return $ const $ CryptProcess $ startCrypt keyStream
+newCryptProcess key = return $ const $ CryptProcess $ startCrypt key
 
 {-# INLINE continueCryptProcess #-}
 continueCryptProcess :: Int -> Int -> KeyStream -> IO (ForeignPtr Block -> CryptProcess)
-continueCryptProcess keyOffset keyLength keyStream =
-    return $ \dstFp -> CryptProcess $ continueCrypt (fromForeignPtr (castForeignPtr dstFp) keyOffset keyLength) keyStream
+continueCryptProcess keyOffset keyLength key =
+    return $ \dstFp -> CryptProcess $ continueCrypt (fromForeignPtr (castForeignPtr dstFp) keyOffset keyLength) key
 
 -- | Encrypt whole number of blocks.
 -- Number of bytes encrypted will be truncated to block boundary.
 -- Returns unconsumed keystream and number of bytes actually xored
 {-# INLINE blockXor #-}
 blockXor :: Ptr Block -> Ptr Word8 -> KeyStream -> Int -> IO (KeyStream, Int)
-blockXor dstPtr srcPtr keyStream size
+blockXor dstPtr srcPtr key size
     | srcPtr `alignPtr` alignment (undefined :: Block) == srcPtr = do
-        stream <- blockXor3 dstPtr (castPtr srcPtr) keyStream blockBytes
+        stream <- blockXor3 dstPtr (castPtr srcPtr) key blockBytes
         return (stream, blockBytes)
     | otherwise = do
         copyBytes (castPtr dstPtr) srcPtr blockBytes
-        stream <- blockXor2 dstPtr keyStream blockBytes
+        stream <- blockXor2 dstPtr key blockBytes
         return (stream, blockBytes)
     where
         blockBytes = assert (blockSize == 64) $ size .&. (complement 0x3F)
@@ -337,8 +382,8 @@ blockXor dstPtr srcPtr keyStream size
 -- | 2-address block crypt
 {-# INLINE blockXor2 #-}
 blockXor2 :: Ptr Block -> KeyStream -> Int -> IO KeyStream
-blockXor2 dstPtr keyStream@(KeyStream key nextKey) size
-    | size == 0 = return keyStream
+blockXor2 dstPtr k@(KeyStream key nextKey) size
+    | size == 0 = return k
     | otherwise = assert (size `rem` blockSize == 0) $ do
         block <- peek dstPtr
         poke dstPtr $ block `xorBlock` key
@@ -347,8 +392,8 @@ blockXor2 dstPtr keyStream@(KeyStream key nextKey) size
 -- | 3-address block crypt
 {-# INLINE blockXor3 #-}
 blockXor3 :: Ptr Block -> Ptr Block -> KeyStream -> Int -> IO KeyStream
-blockXor3 dstPtr srcPtr keyStream@(KeyStream key nextKey) size
-    | size == 0 = return keyStream
+blockXor3 dstPtr srcPtr k@(KeyStream key nextKey) size
+    | size == 0 = return k
     | otherwise = assert (size `rem` blockSize == 0) $ do
         block <- peek srcPtr
         poke dstPtr $ block `xorBlock` key
@@ -383,40 +428,3 @@ bytesXor3 dstPtr srcPtr keyPtr count
         y <- peek keyPtr
         poke dstPtr (x `xor` y)
         bytesXor3 (dstPtr `plusPtr` 1) (srcPtr `plusPtr` 1) (keyPtr `plusPtr` 1) (count - 1)
-
-instance Binary Quarter where
-    get = liftM4 Quarter getWord32host getWord32host getWord32host getWord32host
-
-    put (Quarter x0 x1 x2 x3) = do
-        putWord32host x0
-        putWord32host x1
-        putWord32host x2
-        putWord32host x3
-
-instance Binary Block where
-    get = liftM4 Block get get get get
-
-    put (Block x0 x1 x2 x3) = do
-        put x0
-        put x1
-        put x2
-        put x3
-
-instance Binary Key128 where
-    get = liftM Key128 get
-
-    put (Key128 quarter) = put quarter
-
-instance Binary Key256 where
-    get = liftM2 Key256 get get
-
-    put (Key256 x0 x1) = do
-        put x0
-        put x1
-
-instance Binary Nounce where
-    get = liftM2 Nounce get get
-
-    put (Nounce x0 x1) = do
-        put x0
-        put x1

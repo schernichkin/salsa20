@@ -13,7 +13,7 @@ import           Test.Framework.Providers.QuickCheck2
 import           Test.HUnit                           as U
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic              as QM (assert, monadicIO,
-                                                             pick, run)
+                                                             pick)
 
 instance Arbitrary Quarter where
     arbitrary = liftM4 Quarter arbitrary arbitrary arbitrary arbitrary
@@ -26,7 +26,6 @@ instance Arbitrary S.Nounce where
 
 instance Arbitrary S.Key128 where
     arbitrary = liftM S.Key128 arbitrary
-
 
 doubleroundTestGroup :: TestName -> (S.Block -> S.Block) -> F.Test
 doubleroundTestGroup n f = testGroup n $ map (uncurry testCase)
