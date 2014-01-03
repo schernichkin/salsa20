@@ -1,24 +1,25 @@
-Name: Salsa20
-Version: 0.0.0.0
-License: BSD3
-Maintainer: Stanislav Chernichkin <schernichkin@gmail.com>
-Author: Stanislav Chernichkin
-Category: Cryptography
-Build-Type: Simple
-homepage: https://github.com/schernichkin/salsa20
-synopsis: Salsa20 chiper
-Description: Salsa20 chiper implementation in Haskell
-Stability: Experemental
-Cabal-version: >= 1.8
+Name:           Salsa20
+Version:        0.0.0.0
+License:        BSD3
+Author:         Stanislav Chernichkin
+Maintainer:     Stanislav Chernichkin <schernichkin@gmail.com>
+Category:       Cryptography
+Homepage:       https://github.com/schernichkin/salsa20
+Synopsis:       Salsa20 chiper
+Description:    Salsa20 chiper implementation in Haskell
+Build-Type:     Simple
+Stability:      Experemental
+Cabal-version:  >= 1.8
 
 Library
-    Hs-Source-Dirs: src
-    Exposed-Modules: Crypto.Cipher.Salsa20
-                   , Crypto.Cipher.Salsa20.LE
-    Build-Depends: base
-                 , bytestring
-                 , binary
-    GHC-Options: -Wall -O2
+    Build-Depends:    base
+                    , bytestring
+                    , binary
+    Exposed-Modules:  Crypto.Cipher.Salsa20
+                    , Crypto.Cipher.Salsa20.LE
+    other-extensions: CPP
+    Hs-Source-Dirs:   src
+    GHC-Options:      -Wall -O2
 
 test-suite Tests
     hs-source-dirs: test
