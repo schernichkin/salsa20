@@ -1,19 +1,21 @@
 module Crypto.Cipher.Salsa20.LE where
 
-import           Control.Applicative
+import           Control.Applicative      ((<$>))
 import           Control.Exception        (assert)
-import           Control.Monad
-import           Data.Binary
-import           Data.Binary.Get
-import           Data.Binary.Put
-import           Data.Bits
-import           Data.ByteString.Internal hiding (PS)
-import           Foreign.ForeignPtr       (ForeignPtr, castForeignPtr,
-                                           withForeignPtr)
-import           Foreign.Marshal.Utils
-import           Foreign.Ptr
-import           Foreign.Storable
-import           System.IO.Unsafe
+import           Control.Monad            (liftM, liftM2, liftM4, void)
+import           Data.Binary              (Binary (..), Word32, Word64, Word8)
+import           Data.Binary.Get          (getWord32host)
+import           Data.Binary.Put          (putWord32host)
+import           Data.Bits                (complement, rotateL, unsafeShiftR,
+                                           xor, (.&.))
+import           Data.ByteString.Internal (ByteString, fromForeignPtr,
+                                           toForeignPtr)
+import qualified Data.ByteString.Lazy as BL
+import           Data.ByteString.Lazy     (fromChunks, toChunks)
+import           Foreign                  (ForeignPtr, Ptr, Storable (..),
+                                           alignPtr, castForeignPtr, castPtr,
+                                           copyBytes, plusPtr, withForeignPtr)
+import           System.IO.Unsafe         (unsafeDupablePerformIO)
 
 #if __GLASGOW_HASKELL__ >= 605 && !defined(SLOW_FOREIGN_PTR)
 import           GHC.ForeignPtr           (mallocPlainForeignPtrBytes)
@@ -259,6 +261,14 @@ newtype CryptProcess = CryptProcess { runCryptProcess :: ByteString -> (ByteStri
 crypt :: (Key key) => Core -> key -> Nounce -> Word64 -> CryptProcess
 crypt core key nounce seqNum = CryptProcess $ startCrypt $ keyStream core key nounce seqNum
 
+cryptString :: (Key key) => Core -> key -> Nounce -> BL.ByteString -> BL.ByteString
+cryptString core key nounce = fromChunks . go (crypt core key nounce 0) . toChunks
+    where
+        go _ [] = []
+        go (CryptProcess cp) (x : xs) = let (crypted, cp') = cp x in crypted : go cp' xs
+
+-- cryptString core key nounce seqNum = CryptProcess $ startCrypt $ keyStream core key nounce seqNum
+
 {-# INLINE startCrypt #-}
 startCrypt :: KeyStream -> ByteString -> (ByteString, CryptProcess)
 startCrypt key src
@@ -438,4 +448,4 @@ bytesXor3 dstPtr srcPtr keyPtr count
         x <- peek srcPtr
         y <- peek keyPtr
         poke dstPtr (x `xor` y)
-        bytesXor3 (dstPtr `plusPtr` 1) (srcPtr `plusPtr` 1) (keyPtr `plusPtr` 1) (count - 1)
+        bytesXor3 (dstPtr `plusPtr` 1) (srcPtr `plusPtr` 1) (keyPtr `plusPtr` 1) (count - 1) 
