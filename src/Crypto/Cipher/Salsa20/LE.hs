@@ -237,12 +237,12 @@ data Nounce = Nounce {-# UNPACK #-} !Word32
 
 instance Binary Nounce where
     {-# INLINE get #-}
-    get = liftM2 Nounce get get
+    get = liftM2 Nounce getWord32host getWord32host
 
     {-# INLINE put #-}
     put (Nounce x0 x1) = do
-        put x0
-        put x1
+        putWord32host x0
+        putWord32host x1
 
 data KeyStream = KeyStream {-# UNPACK #-} !Block
                                            KeyStream
@@ -266,8 +266,6 @@ cryptString core key nounce = fromChunks . go (crypt core key nounce 0) . toChun
     where
         go _ [] = []
         go (CryptProcess cp) (x : xs) = let (crypted, cp') = cp x in crypted : go cp' xs
-
--- cryptString core key nounce seqNum = CryptProcess $ startCrypt $ keyStream core key nounce seqNum
 
 {-# INLINE startCrypt #-}
 startCrypt :: KeyStream -> ByteString -> (ByteString, CryptProcess)

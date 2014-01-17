@@ -14,6 +14,7 @@ import           Foreign.Storable
 import           Test.Framework                 as F
 import           Test.Framework.Providers.HUnit
 import           Test.HUnit                     as U
+import Data.Char
 
 readHex :: (Binary a) => LS.ByteString -> a
 readHex = Binary.decode . fst . Base16.decode
@@ -25,10 +26,11 @@ keystreamToBytestring (KeyStream key nextKey) =
 testVector :: (Key key) => String -> Core -> key -> Nounce -> [((Int64, Int64), LS.ByteString)] -> F.Test
 testVector name core key nounce = testGroup name . map testSection
     where
-        stream = keyStream core key nounce 0
-        testSection (section@(from, to), excepted) = testCase ("section " ++ show section) $ actual @=? excepted
+        encodedString = cryptString core key nounce (LS.repeat (chr 0))
+--        stream = keyStream core key nounce 0
+        testSection (section@(from, to), excepted) = testCase ("section " ++ show section) $ excepted @=? actual
             where
-                actual = LS.take (to - from + 1) $ LS.drop from $ keystreamToBytestring stream
+                actual = (LS.take (to - from + 1) $ LS.drop from $ encodedString)
 
 eCrypt128 :: F.Test
 eCrypt128 = testGroup "eCrypt128"
@@ -1725,7 +1727,7 @@ eCrypt128 = testGroup "eCrypt128"
                           ]
     ]
     where
-        testVector128 name key iv = testVector name (salsa 20) (readHex (LS.pack key) `asTypeOf` (undefined :: Key128)) (readHex (LS.pack iv)) . map (\(a, b) -> (a, fst $ Base16.decode $ LS.pack b))
+        testVector128 name key iv = testVector name (salsa 20) (readHex (LS.pack $ map toLower key) `asTypeOf` (undefined :: Key128)) (readHex (LS.pack $ map toLower iv)) . map (\(a, b) -> (a, fst $ Base16.decode $ LS.pack $ map toLower b))
 
 eCrypt256 :: F.Test
 eCrypt256 = testGroup "eCrypt256"
@@ -3776,19 +3778,19 @@ eCrypt256 = testGroup "eCrypt256"
                                        ++ "F883FB89CE3B21F54A10B81066EF87DA"
                                        ++ "30B77699AA7379DA595C77DD59542DA2"
                                        ++ "08E5954F89E40EB7AA80A84A6176663F" )
-                           , ((65472, 65535), "2DA2174BD150A1DFEC1796E921E9D6E2"
+                       , ((65472, 65535), "2DA2174BD150A1DFEC1796E921E9D6E2"
                                        ++ "4ECF0209BCBEA4F98370FCE629056F64"
                                        ++ "917283436E2D3F45556225307D5CC5A5"
                                        ++ "65325D8993B37F1654195C240BF75B16" )
-                           , ((65536, 65599), "ABF39A210EEE89598B7133377056C2FE"
+                       , ((65536, 65599), "ABF39A210EEE89598B7133377056C2FE"
                                        ++ "F42DA731327563FB67C7BEDB27F38C7C"
                                        ++ "5A3FC2183A4C6B277F901152472C6B2A"
                                        ++ "BCF5E34CBE315E81FD3D180B5D66CB6C" )
-                           , ((131008, 131071), "1BA89DBD3F98839728F56791D5B7CE23"
+                     , ((131008, 131071), "1BA89DBD3F98839728F56791D5B7CE23"
                                        ++ "5036DE843CCCAB0390B8B5862F1E4596"
                                        ++ "AE8A16FB23DA997F371F4E0AACC26DB8"
                                        ++ "EB314ED470B1AF6B9F8D69DD79A9D750" )
                           ]
     ]
     where
-        testVector256 name key iv = testVector name (salsa 20) (readHex (LS.pack key) `asTypeOf` (undefined :: Key256)) (readHex (LS.pack iv)) . map (\(a, b) -> (a, fst $ Base16.decode $ LS.pack b))
+        testVector256 name key iv = testVector name (salsa 20) (readHex (LS.pack $ map toLower key) `asTypeOf` (undefined :: Key256)) (readHex (LS.pack $ map toLower iv)) . map (\(a, b) -> (a, fst $ Base16.decode $ LS.pack $ map toLower b))

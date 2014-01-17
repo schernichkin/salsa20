@@ -14,6 +14,7 @@ import           Test.HUnit                           as U
 import           Test.QuickCheck
 import           Test.QuickCheck.Monadic              as QM (assert, monadicIO,
                                                              pick)
+import ECrypt
 
 instance Arbitrary Quarter where
     arbitrary = liftM4 Quarter arbitrary arbitrary arbitrary arbitrary
@@ -166,6 +167,7 @@ main = defaultMain
                 decrypted = fst $ runCryptProcess cryptProcess encrypted
             QM.assert $ decrypted == BS.concat strings
         ]
+      , testGroup "ecrypt" [eCrypt128, eCrypt256]
     ]
 
 byteStringToHex :: BS.ByteString -> String
